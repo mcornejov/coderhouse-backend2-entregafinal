@@ -1,0 +1,63 @@
+{
+  "name": "cafe-aurora-eventos",
+  "version": "1.0.0",
+  "description": "Plataforma de Eventos e Inscripciones de Café Aurora (Backend II, entrega final): API REST con Express en capas formales (routes, controllers, services, repositories, DAO, DTO), MongoDB con Mongoose, autenticación con Passport (JWT en cookie httpOnly), roles y autorización por propiedad, eventos con reglas de negocio, filtros y paginación, inscripciones con control de cupos y correos con Nodemailer.",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --import ./test/env.js --test --test-concurrency=4 test/*.test.js",
+    "asignar-rol": "node src/scripts/asignar-rol.js",
+    "seed": "node src/scripts/seed.js"
+  },
+  "keywords": [
+    "nodejs",
+    "express",
+    "esm",
+    "mongodb",
+    "mongoose",
+    "bcrypt",
+    "jwt",
+    "cookies",
+    "passport",
+    "autorizacion",
+    "roles",
+    "eventos",
+    "inscripciones",
+    "backend",
+    "arquitectura-en-capas",
+    "paginacion",
+    "filtros",
+    "reglas-de-negocio",
+    "tickets",
+    "inscripciones-eventos",
+    "nodemailer",
+    "cupos",
+    "dao",
+    "repository",
+    "dto"
+  ],
+  "author": "mcornejov",
+  "license": "ISC",
+  "packageManager": "pnpm@11.0.9",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^18.0.4",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.10.2",
+    "nodemailer": "^10.3.1",
+    "passport": "^0.7.0",
+    "passport-jwt": "^4.0.1",
+    "passport-local": "^1.0.0"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^11.3.0",
+    "supertest": "^7.3.0"
+  }
+}

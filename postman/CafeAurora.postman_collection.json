@@ -1,0 +1,2253 @@
+{
+  "info": {
+    "_postman_id": "f548d6c1-9c93-45e7-95e0-516a207a058f",
+    "name": "Café Aurora · Plataforma de Eventos (Backend II)",
+    "description": "Flujo completo de la API: sesión, roles, eventos, inscripciones, cupos, cancelación y errores 401/403.\n\nRequisitos: servidor corriendo en {{baseUrl}} y datos de prueba cargados con `pnpm seed` (usuarios ana@cafeaurora.cl admin, bruno@cafeaurora.cl organizer, carla@cafeaurora.cl y diego@cafeaurora.cl user; contraseña Aurora2026!). Ejecutar las carpetas en orden con el Collection Runner: cada petición guarda los ids que necesita la siguiente y verifica el código de respuesta con tests.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "password",
+      "value": "Aurora2026!"
+    },
+    {
+      "key": "eventId",
+      "value": ""
+    },
+    {
+      "key": "charlaId",
+      "value": ""
+    },
+    {
+      "key": "ticketId",
+      "value": ""
+    },
+    {
+      "key": "diegoId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0 · Salud",
+      "item": [
+        {
+          "name": "GET /api/health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "health"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1 · Sesión (caso 1)",
+      "item": [
+        {
+          "name": "Registro de un usuario nuevo (rol user por defecto, role del body ignorado)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "register"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"first_name\": \"Elena\",\n  \"last_name\": \"Prueba\",\n  \"email\": \"elena+{{$timestamp}}@cafeaurora.cl\",\n  \"password\": \"{{password}}\",\n  \"role\": \"admin\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"nace con rol user\", () => pm.expect(pm.response.json().payload.role).to.eql(\"user\"));",
+                  "pm.test(\"no expone password\", () => pm.expect(pm.response.text()).to.not.match(/password/i));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login como carla (user)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "login"
+              ]
+            },
+            "description": "La cookie httpOnly `currentUser` queda en el cookie jar de Postman y viaja sola en las siguientes peticiones. Iniciar sesión con otro usuario la reemplaza.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"carla@cafeaurora.cl\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"mensaje: Login correcto\", () => pm.expect(pm.response.json().message).to.eql(\"Login correcto\"));",
+                  "pm.test(\"setea la cookie currentUser\", () => pm.expect(pm.response.headers.get(\"Set-Cookie\")).to.include(\"currentUser=\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/sessions/current → 200 sin password",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/current",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "current"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"no expone password\", () => pm.expect(pm.response.text()).to.not.match(/password/i));",
+                  "pm.test(\"payload = { id, email, role }\", () => pm.expect(Object.keys(pm.response.json().payload).sort()).to.eql([\"email\",\"id\",\"role\"]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/sessions/logout → 200",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "logout"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"mensaje: Sesión cerrada\", () => pm.expect(pm.response.json().message).to.eql(\"Sesión cerrada\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/sessions/current tras logout → 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/current",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "current"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"mensaje: No autenticado\", () => pm.expect(pm.response.json().message).to.eql(\"No autenticado\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login con credenciales incorrectas → 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"carla@cafeaurora.cl\",\n  \"password\": \"incorrecta\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"mensaje: Credenciales inválidas\", () => pm.expect(pm.response.json().message).to.eql(\"Credenciales inválidas\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Registro → login → current → logout → current 401."
+    },
+    {
+      "name": "2 · Eventos y roles (casos 2, 7, 8 y 10)",
+      "item": [
+        {
+          "name": "Login como carla (user)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "login"
+              ]
+            },
+            "description": "La cookie httpOnly `currentUser` queda en el cookie jar de Postman y viaja sola en las siguientes peticiones. Iniciar sesión con otro usuario la reemplaza.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"carla@cafeaurora.cl\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"mensaje: Login correcto\", () => pm.expect(pm.response.json().message).to.eql(\"Login correcto\"));",
+                  "pm.test(\"setea la cookie currentUser\", () => pm.expect(pm.response.headers.get(\"Set-Cookie\")).to.include(\"currentUser=\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "user crea evento → 403 (caso 2)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Intento\",\n  \"description\": \"x\",\n  \"category\": \"cata\",\n  \"date\": \"2030-01-10T19:00:00.000Z\",\n  \"location\": \"Café Aurora\",\n  \"capacity\": 5,\n  \"price\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"mensaje: No tienes permisos para realizar esta acción\", () => pm.expect(pm.response.json().message).to.eql(\"No tienes permisos para realizar esta acción\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login como bruno (organizer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "login"
+              ]
+            },
+            "description": "La cookie httpOnly `currentUser` queda en el cookie jar de Postman y viaja sola en las siguientes peticiones. Iniciar sesión con otro usuario la reemplaza.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"bruno@cafeaurora.cl\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"mensaje: Login correcto\", () => pm.expect(pm.response.json().message).to.eql(\"Login correcto\"));",
+                  "pm.test(\"setea la cookie currentUser\", () => pm.expect(pm.response.headers.get(\"Set-Cookie\")).to.include(\"currentUser=\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "organizer crea evento → 201 (draft, organizer desde la sesión)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Cata de cafés de Etiopía {{$timestamp}}\",\n  \"description\": \"Tres orígenes lavados y naturales.\",\n  \"category\": \"cata\",\n  \"date\": \"2030-03-15T19:00:00.000Z\",\n  \"location\": \"Café Aurora, Providencia\",\n  \"capacity\": 3,\n  \"price\": 15000,\n  \"organizer\": \"hackeado\",\n  \"status\": \"published\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"nace draft y organizer no viene del body\", () => { const p = pm.response.json().payload; pm.expect(p.status).to.eql(\"draft\"); pm.expect(p.organizer).to.not.eql(\"hackeado\"); });",
+                  "pm.collectionVariables.set(\"eventId\", pm.response.json().payload.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Fecha pasada → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Pasado\",\n  \"description\": \"x\",\n  \"category\": \"cata\",\n  \"date\": \"2020-01-10T19:00:00.000Z\",\n  \"location\": \"Café Aurora\",\n  \"capacity\": 5,\n  \"price\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"mensaje: La fecha del evento no puede ser pasada\", () => pm.expect(pm.response.json().message).to.eql(\"La fecha del evento no puede ser pasada\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "capacity 0 → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Sin cupo\",\n  \"description\": \"x\",\n  \"category\": \"cata\",\n  \"date\": \"2030-01-10T19:00:00.000Z\",\n  \"location\": \"Café Aurora\",\n  \"capacity\": 0,\n  \"price\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"mensaje: El campo capacity debe ser un entero mayor que 0\", () => pm.expect(pm.response.json().message).to.eql(\"El campo capacity debe ser un entero mayor que 0\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Publicar el evento → 200 (draft → published)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{eventId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"published\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"published\", () => pm.expect(pm.response.json().payload.status).to.eql(\"published\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Transición no permitida (published → draft) → 409",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{eventId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"draft\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 409\", () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "organizer modifica evento propio → 200",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{eventId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"price\": 12000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login como ana (admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "login"
+              ]
+            },
+            "description": "La cookie httpOnly `currentUser` queda en el cookie jar de Postman y viaja sola en las siguientes peticiones. Iniciar sesión con otro usuario la reemplaza.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"ana@cafeaurora.cl\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"mensaje: Login correcto\", () => pm.expect(pm.response.json().message).to.eql(\"Login correcto\"));",
+                  "pm.test(\"setea la cookie currentUser\", () => pm.expect(pm.response.headers.get(\"Set-Cookie\")).to.include(\"currentUser=\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "admin modifica evento ajeno → 200 (caso 8)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{eventId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"location\": \"Café Aurora, Providencia (salón 2)\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"organizer original se conserva\", () => pm.expect(pm.response.json().payload.organizer).to.be.a(\"string\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "admin lista usuarios → 200 sin passwords (guarda el id de diego)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"no expone password\", () => pm.expect(pm.response.text()).to.not.match(/password/i));",
+                  "pm.collectionVariables.set(\"diegoId\", pm.response.json().payload.find(u => u.email === \"diego@cafeaurora.cl\").id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "admin promueve a diego a organizer → 200",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/{{diegoId}}/role",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{diegoId}}",
+                "role"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"organizer\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login como diego (organizer, otro)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "login"
+              ]
+            },
+            "description": "La cookie httpOnly `currentUser` queda en el cookie jar de Postman y viaja sola en las siguientes peticiones. Iniciar sesión con otro usuario la reemplaza.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"diego@cafeaurora.cl\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"mensaje: Login correcto\", () => pm.expect(pm.response.json().message).to.eql(\"Login correcto\"));",
+                  "pm.test(\"setea la cookie currentUser\", () => pm.expect(pm.response.headers.get(\"Set-Cookie\")).to.include(\"currentUser=\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "organizer modifica evento ajeno → 403 (caso 7)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{eventId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Hackeado\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"mensaje: Solo puedes modificar tus propios eventos\", () => pm.expect(pm.response.json().message).to.eql(\"Solo puedes modificar tus propios eventos\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login como ana (admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "login"
+              ]
+            },
+            "description": "La cookie httpOnly `currentUser` queda en el cookie jar de Postman y viaja sola en las siguientes peticiones. Iniciar sesión con otro usuario la reemplaza.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"ana@cafeaurora.cl\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"mensaje: Login correcto\", () => pm.expect(pm.response.json().message).to.eql(\"Login correcto\"));",
+                  "pm.test(\"setea la cookie currentUser\", () => pm.expect(pm.response.headers.get(\"Set-Cookie\")).to.include(\"currentUser=\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "admin devuelve a diego el rol user",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/{{diegoId}}/role",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{diegoId}}",
+                "role"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"user\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listado paginado ?status=published&page=2&limit=5 (caso 10)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events?status=published&page=2&limit=5",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "published"
+                },
+                {
+                  "key": "page",
+                  "value": "2"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"estructura { status, data, page, limit, total, totalPages }\", () => pm.expect(Object.keys(pm.response.json()).sort()).to.eql([\"data\",\"limit\",\"page\",\"status\",\"total\",\"totalPages\"]));",
+                  "pm.test(\"page 2, limit 5\", () => { const b = pm.response.json(); pm.expect(b.page).to.eql(2); pm.expect(b.limit).to.eql(5); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listado con filtros y orden",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events?category=cata&location=providencia&sort=-date",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "cata"
+                },
+                {
+                  "key": "location",
+                  "value": "providencia"
+                },
+                {
+                  "key": "sort",
+                  "value": "-date"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detalle de evento → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{eventId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"no expone password\", () => pm.expect(pm.response.text()).to.not.match(/password/i));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Evento inexistente → 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/665f2a1b2c3d4e5f6a7b8c9d",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "665f2a1b2c3d4e5f6a7b8c9d"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Id inválido → 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/abc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "abc"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 400\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Permisos por rol y propiedad, reglas de negocio y listado paginado."
+    },
+    {
+      "name": "3 · Inscripciones y cupos (casos 3 a 6 y 9)",
+      "item": [
+        {
+          "name": "Login como carla (user)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "login"
+              ]
+            },
+            "description": "La cookie httpOnly `currentUser` queda en el cookie jar de Postman y viaja sola en las siguientes peticiones. Iniciar sesión con otro usuario la reemplaza.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"carla@cafeaurora.cl\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"mensaje: Login correcto\", () => pm.expect(pm.response.json().message).to.eql(\"Login correcto\"));",
+                  "pm.test(\"setea la cookie currentUser\", () => pm.expect(pm.response.headers.get(\"Set-Cookie\")).to.include(\"currentUser=\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "carla se inscribe → 201 + correo (caso 3)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{eventId}}",
+                "tickets"
+              ]
+            },
+            "description": "El correo de confirmación sale al email de la sesión (o se registra en la consola del servidor si MAIL_HOST no está configurado).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"confirmed con código de reserva\", () => { const p = pm.response.json().payload; pm.expect(p.status).to.eql(\"confirmed\"); pm.expect(p.reservationCode).to.match(/^AUR-/); });",
+                  "pm.collectionVariables.set(\"ticketId\", pm.response.json().payload.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Inscripción duplicada → 409 (caso 4)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{eventId}}",
+                "tickets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"mensaje de duplicado\", () => pm.expect(pm.response.json().message).to.include(\"Ya tienes una inscripción activa\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mis tickets → 200 con el evento poblado (caso 9)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets/my-tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tickets",
+                "my-tickets"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"no expone password\", () => pm.expect(pm.response.text()).to.not.match(/password/i));",
+                  "pm.test(\"event poblado con title, date, location\", () => pm.expect(Object.keys(pm.response.json().payload[0].event).sort()).to.eql([\"date\",\"id\",\"location\",\"title\"]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Inscritos del evento como user → 403",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{eventId}}",
+                "tickets"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"mensaje: No tienes permisos para realizar esta acción\", () => pm.expect(pm.response.json().message).to.eql(\"No tienes permisos para realizar esta acción\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login como diego (user)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "login"
+              ]
+            },
+            "description": "La cookie httpOnly `currentUser` queda en el cookie jar de Postman y viaja sola en las siguientes peticiones. Iniciar sesión con otro usuario la reemplaza.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"diego@cafeaurora.cl\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"mensaje: Login correcto\", () => pm.expect(pm.response.json().message).to.eql(\"Login correcto\"));",
+                  "pm.test(\"setea la cookie currentUser\", () => pm.expect(pm.response.headers.get(\"Set-Cookie\")).to.include(\"currentUser=\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "diego pide 2 lugares con 1 libre → 409 sin cupo suficiente (caso 5)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{eventId}}",
+                "tickets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"mensaje: No hay cupo suficiente: quedan 1 lugares y solicitaste 2\", () => pm.expect(pm.response.json().message).to.eql(\"No hay cupo suficiente: quedan 1 lugares y solicitaste 2\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "diego cancela el ticket de carla → 403",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets/{{ticketId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tickets",
+                "{{ticketId}}",
+                "cancel"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"mensaje: Solo puedes cancelar tus propios tickets\", () => pm.expect(pm.response.json().message).to.eql(\"Solo puedes cancelar tus propios tickets\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login como bruno (organizer dueño)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "login"
+              ]
+            },
+            "description": "La cookie httpOnly `currentUser` queda en el cookie jar de Postman y viaja sola en las siguientes peticiones. Iniciar sesión con otro usuario la reemplaza.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"bruno@cafeaurora.cl\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"mensaje: Login correcto\", () => pm.expect(pm.response.json().message).to.eql(\"Login correcto\"));",
+                  "pm.test(\"setea la cookie currentUser\", () => pm.expect(pm.response.headers.get(\"Set-Cookie\")).to.include(\"currentUser=\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Inscritos del evento como organizer dueño → 200 con cupos (caso 3: cupo descontado)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{eventId}}",
+                "tickets"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"no expone password\", () => pm.expect(pm.response.text()).to.not.match(/password/i));",
+                  "pm.test(\"cuposOcupados 2 de 3\", () => { const p = pm.response.json().payload; pm.expect(p.cuposOcupados).to.eql(2); pm.expect(p.cuposDisponibles).to.eql(1); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login como carla (user)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "login"
+              ]
+            },
+            "description": "La cookie httpOnly `currentUser` queda en el cookie jar de Postman y viaja sola en las siguientes peticiones. Iniciar sesión con otro usuario la reemplaza.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"carla@cafeaurora.cl\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"mensaje: Login correcto\", () => pm.expect(pm.response.json().message).to.eql(\"Login correcto\"));",
+                  "pm.test(\"setea la cookie currentUser\", () => pm.expect(pm.response.headers.get(\"Set-Cookie\")).to.include(\"currentUser=\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "carla cancela su ticket → 200 cancelled (caso 6)",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets/{{ticketId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tickets",
+                "{{ticketId}}",
+                "cancel"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"cancelled con cancelledAt\", () => { const p = pm.response.json().payload; pm.expect(p.status).to.eql(\"cancelled\"); pm.expect(p.cancelledAt).to.be.a(\"string\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancelar dos veces → 409",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets/{{ticketId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tickets",
+                "{{ticketId}}",
+                "cancel"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"mensaje: El ticket ya está cancelado\", () => pm.expect(pm.response.json().message).to.eql(\"El ticket ya está cancelado\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login como diego (user)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "login"
+              ]
+            },
+            "description": "La cookie httpOnly `currentUser` queda en el cookie jar de Postman y viaja sola en las siguientes peticiones. Iniciar sesión con otro usuario la reemplaza.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"diego@cafeaurora.cl\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"mensaje: Login correcto\", () => pm.expect(pm.response.json().message).to.eql(\"Login correcto\"));",
+                  "pm.test(\"setea la cookie currentUser\", () => pm.expect(pm.response.headers.get(\"Set-Cookie\")).to.include(\"currentUser=\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Con el cupo liberado, diego se inscribe con 2 → 201 (caso 6)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{eventId}}",
+                "tickets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 201\", () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Evento sin cupo: busca la charla del seed (capacity 2)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events?category=charla&status=published",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "charla"
+                },
+                {
+                  "key": "status",
+                  "value": "published"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"charlaId\", pm.response.json().data[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "diego toma los 2 cupos de la charla → 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{charlaId}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{charlaId}}",
+                "tickets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 201\", () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login como carla (user)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "login"
+              ]
+            },
+            "description": "La cookie httpOnly `currentUser` queda en el cookie jar de Postman y viaja sola en las siguientes peticiones. Iniciar sesión con otro usuario la reemplaza.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"carla@cafeaurora.cl\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"mensaje: Login correcto\", () => pm.expect(pm.response.json().message).to.eql(\"Login correcto\"));",
+                  "pm.test(\"setea la cookie currentUser\", () => pm.expect(pm.response.headers.get(\"Set-Cookie\")).to.include(\"currentUser=\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "carla intenta la charla llena → 409 sin cupos (caso 5)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{charlaId}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{charlaId}}",
+                "tickets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"mensaje: El evento no tiene cupos disponibles\", () => pm.expect(pm.response.json().message).to.eql(\"El evento no tiene cupos disponibles\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "quantity inválida → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{eventId}}",
+                "tickets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"mensaje: El campo quantity debe ser un entero entre 1 y 10\", () => pm.expect(pm.response.json().message).to.eql(\"El campo quantity debe ser un entero entre 1 y 10\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Inscripción, duplicados, cupos, cancelación y reocupación del cupo."
+    },
+    {
+      "name": "4 · Sin sesión → 401",
+      "item": [
+        {
+          "name": "Logout (limpia la cookie)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "logout"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear evento sin sesión → 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"x\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"mensaje: No autenticado\", () => pm.expect(pm.response.json().message).to.eql(\"No autenticado\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Inscribirse sin sesión → 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{eventId}}",
+                "tickets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 401\", () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mis tickets sin sesión → 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets/my-tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tickets",
+                "my-tickets"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 401\", () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Token manipulado → 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/current",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "current"
+              ]
+            },
+            "description": "Para probarlo a mano: en el gestor de cookies de Postman cambia el valor de currentUser por cualquier texto."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 401\", () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listado público sin sesión → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
