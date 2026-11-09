@@ -10,6 +10,9 @@ import { errorHandler } from './middlewares/error.middleware.js';
 // server.js, lo que permite reutilizar la app en tests sin abrir un puerto.
 const app = express();
 
+// No anunciar el framework en cada respuesta: un atacante no necesita saber que es Express
+app.disable('x-powered-by');
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 // Deja las cookies de la petición disponibles en req.cookies (la cookie de sesión currentUser)

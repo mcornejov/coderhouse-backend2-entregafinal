@@ -93,7 +93,7 @@ y gestionar las inscripciones de los clientes.
 | bcrypt | Hash y comparación de contraseñas |
 | jsonwebtoken | Firma del JWT (la verificación la hace `passport-jwt`) |
 | cookie-parser | Lectura de la cookie de sesión |
-| Nodemailer | Correo de confirmación de inscripción (SMTP por variables de entorno) |
+| Nodemailer | Correos de confirmación y de cancelación de inscripción (SMTP por variables de entorno) |
 | dotenv | Variables de entorno |
 | node:test + supertest + mongodb-memory-server | Tests de integración con base en memoria |
 | pnpm | Gestor de paquetes |
@@ -116,6 +116,11 @@ Copia el archivo de ejemplo y ajusta los valores:
 cp .env.example .env
 ```
 
+El ejemplo deja `MAIL_HOST` vacío a propósito: así la API arranca y se prueba completa sin cuenta de
+correo, y cada correo se arma y se **registra en la consola del servidor** en vez de enviarse. Para
+verlo llegar a un buzón real, completa las variables `MAIL_*` (Ethereal entrega credenciales de prueba
+en un minuto; ver la tabla).
+
 | Variable | Descripción | Obligatoria |
 |----------|-------------|-------------|
 | `PORT` | Puerto donde escucha el servidor | Sí |
@@ -124,7 +129,7 @@ cp .env.example .env
 | `JWT_SECRET` | Secreto con el que se firman (controller) y verifican (estrategia `current`) los JWT. Usa un valor largo y aleatorio | Sí |
 | `JWT_EXPIRES_IN` | Expiración del JWT: número de segundos (`3600`) o duración con unidad (`15m`, `1h`, `7d`). Por defecto `1h` | No |
 | `BCRYPT_SALT_ROUNDS` | Costo del hash de bcrypt, entre 10 y 14 (por defecto 10) | No |
-| `MAIL_HOST` | Servidor SMTP para el correo de confirmación (`smtp.ethereal.email`, `smtp.gmail.com`, Mailtrap...). **Sin él el servidor arranca igual**: los correos se registran en consola y no se envían | No |
+| `MAIL_HOST` | Servidor SMTP para los correos (`smtp.ethereal.email`, `smtp.gmail.com`, Mailtrap...). **Vacío por defecto**: el servidor arranca igual y los correos se registran en consola en vez de enviarse | No |
 | `MAIL_PORT` | Puerto SMTP: `587` (STARTTLS, por defecto) o `465` (TLS) | No |
 | `MAIL_USER`, `MAIL_PASS` | Credenciales SMTP. Con Gmail, `MAIL_PASS` es una "contraseña de aplicación". **Nunca van en el código** | No |
 | `MAIL_FROM` | Remitente que ve el usuario (`"Café Aurora <no-reply@cafeaurora.cl>"`). Por defecto `MAIL_USER` | No |
@@ -157,8 +162,10 @@ La forma rápida: con el `.env` configurado (al menos `MONGO_URL`), ejecuta
 pnpm seed
 ```
 
-Crea, si no existen, cuatro usuarios y cuatro eventos del organizador. Es idempotente (volver a
-correrlo no duplica ni borra nada) y pasa por las mismas capas que la API.
+Crea, si no existen, cuatro usuarios y ocho eventos del organizador (siete publicados y un
+borrador: así `?status=published&page=2&limit=5` devuelve una segunda página con datos). Es
+idempotente (volver a correrlo no duplica ni borra nada) y pasa por las mismas capas que la API. La
+contraseña de prueba se puede cambiar con la variable `SEED_PASSWORD` antes de correrlo.
 
 | Email | Rol | Contraseña | Para qué sirve |
 |-------|-----|------------|----------------|
@@ -172,6 +179,10 @@ correrlo no duplica ni borra nada) y pasa por las mismas capas que la API.
 | Cata de cafés de Colombia | `cata` | 12 | `published` | Inscripciones normales |
 | Taller de latte art | `workshop` | 8 | `published` | Filtro `?category=workshop` |
 | Charla con productores de Ñuble | `charla` | 2 | `published` | Probar "sin cupo" con pocos usuarios |
+| Cata de cafés de Etiopía | `cata` | 10 | `published` | Segunda cata para filtros y paginación |
+| Taller de métodos de filtrado | `workshop` | 6 | `published` | Segundo workshop |
+| Charla: café y comercio justo | `charla` | 25 | `published` | Evento gratuito (`price: 0`) |
+| Noche de bossa nova | `musica` | 30 | `published` | Filtro `?category=musica` |
 | Noche de jazz (borrador) | `musica` | 40 | `draft` | Inscribirse a un borrador → `409`; publicarlo con bruno |
 
 Las fechas de los eventos se calculan al correr el seed (30 a 90 días en el futuro), así nunca quedan
@@ -400,7 +411,7 @@ contra ella el filtro `status`). El esquema de Mongoose es la segunda barrera (`
 | `finished` | — (final) | nada: tampoco se modifican sus datos |
 
 **Cancelar = cambiar `status` a `cancelled`.** El evento sigue en la base y en el listado (filtrable
-con `?status=cancelled`): no se elimina físicamente, así las inscripciones de la próxima entrega
+con `?status=cancelled`): no se elimina físicamente, así las inscripciones (tickets)
 conservan su historial. No hay `DELETE /api/events/:eid`.
 
 ### Reglas de negocio (en `events.service.js`)
@@ -481,7 +492,9 @@ aunque dos peticiones lleguen al mismo tiempo. Los estados y límites viven en `
 7. Se crea el ticket `confirmed` con su `reservationCode`.
 8. **Recuento de seguridad**: si dos inscripciones simultáneas pasaron el paso 6 con el mismo conteo y
    juntas superan la capacidad, la más reciente se deshace antes de responder y recibe el `409` del
-   paso 6. Nunca se confirman más lugares que la capacidad.
+   paso 6. Esto reduce la ventana de sobreventa a la duración de la escritura (en pruebas de
+   estrés con doce inscripciones simultáneas a tres cupos no se superó la capacidad); una garantía
+   absoluta con varias instancias exigiría una transacción o un contador condicional.
 9. **Correo de confirmación** con Nodemailer, después de persistir y sin bloquear la respuesta.
 10. `201` con el ticket.
 
@@ -898,6 +911,9 @@ el Collection Runner.
    `http://localhost:8080`; cámbiala si usas otro puerto.
 3. Ejecuta las carpetas en orden (o toda la colección con el Runner). La cookie `currentUser` la
    administra Postman solo: cada "Login como ..." reemplaza la sesión anterior.
+4. El correo del caso 3 se ve en la consola del servidor (sin `MAIL_HOST`) o en el buzón configurado
+   en `MAIL_*`. La colección deja la base como la encontró (cancela al final los tickets que creó sobre
+   los eventos del seed), así se puede volver a correr sin repetir `pnpm seed`.
 
 ### Los 10 casos del flujo completo
 
@@ -1120,14 +1136,14 @@ curl -b carla.txt -X POST $EV/$TALLER/tickets -H "$H" -d '{}'
 # Mis tickets (con el evento poblado)
 curl -b carla.txt $TK/my-tickets
 
-# 8. Cancelar un ticket ajeno como user → 403
-curl -b diego.txt -X PATCH $TK/$TICKET/cancel
-# { "status": "error", "message": "Solo puedes cancelar tus propios tickets" }
-
 # 7. Cancelación propia → 200 cancelled con cancelledAt; el cupo vuelve a 10 y diego ya puede tomar 9
 curl -b carla.txt -X PATCH $TK/$TICKET/cancel
 curl -b diego.txt -X POST $EV/$TALLER/tickets -H "$H" -d '{ "quantity": 9 }'
 # { "status": "success", "payload": { ..., "quantity": 9 } }
+
+# 8. Cancelar un ticket ajeno como user → 403 (la propiedad se verifica antes que el estado)
+curl -b diego.txt -X PATCH $TK/$TICKET/cancel
+# { "status": "error", "message": "Solo puedes cancelar tus propios tickets" }
 
 # Cancelar dos veces → 409
 curl -b carla.txt -X PATCH $TK/$TICKET/cancel
@@ -1163,7 +1179,7 @@ pnpm test
 ```
 
 Cada archivo de tests levanta su propio MongoDB en memoria, por eso el script los corre de a cuatro
-(`--test-concurrency=4`): en una máquina con poca memoria, lanzar los trece a la vez puede agotar el
+(`--test-concurrency=4`): en una máquina con poca memoria, lanzar los dieciséis a la vez puede agotar el
 tiempo de conexión.
 
 195 tests con MongoDB en memoria. Los 11 de la entrega final:
@@ -1214,7 +1230,7 @@ Cobertura de la entrega de inscripciones, sin cambios:
   contraseña ni rol; filtro `?status=`; `user` → `403`; organizer ajeno → `403`; admin → `200`;
   inexistente → `404`; sin sesión → `401`.
 
-Cobertura de la entrega anterior (eventos), sin cambios:
+Cobertura de la pre-entrega 6 (eventos), sin cambios:
 
 - `test/events-rules.test.js`: fecha pasada al crear y al modificar → `400` sin tocar la base; el
   instante exacto de "ahora" también cuenta como pasado (reloj inyectado al servicio);
@@ -1255,8 +1271,8 @@ Cobertura de la entrega anterior (eventos), sin cambios:
   `if` encadenados en el servicio. Agregar un estado o permitir una transición es tocar una línea;
   los estados finales se derivan de la tabla (los que no tienen salidas), así no hay dos listas que
   desincronizar.
-- **Cancelar es una transición, no un `DELETE`.** La consigna lo exige y además las inscripciones de
-  la próxima entrega necesitarán el evento al que apuntan. Por eso tampoco hay borrado físico
+- **Cancelar es una transición, no un `DELETE`.** La consigna lo exige y además los tickets
+  necesitan el evento al que apuntan para conservar su historial. Por eso tampoco hay borrado físico
   "administrativo".
 - **Eventos finales inmutables, también para `admin`.** Modificar el precio de un evento cancelado no
   tiene sentido de negocio; si hace falta, se crea otro. La consigna admite excepciones "con
@@ -1275,7 +1291,7 @@ Cobertura de la entrega anterior (eventos), sin cambios:
   ya ocurrió; en cambio, un organizador puede dar por terminado un evento antes de la hora prevista.
 - **`category` como texto normalizado, no como colección aparte.** La consigna filtra por
   `category=workshop` (un texto) y pide "campos mínimos". Una colección `Category` con referencia
-  obligaría a resolver el texto a un id en cada filtro y a un CRUD más sin valor para esta entrega;
+  obligaría a resolver el texto a un id en cada filtro y a un CRUD más sin valor para el proyecto;
   guardarla en minúsculas hace que el filtro sea una igualdad exacta e indexable. Si más adelante
   hace falta catálogo de categorías, el cambio queda contenido en el modelo y el servicio.
 - **Listado siempre paginado, con tope.** `limit` máximo 50: una petición sin parámetros nunca trae
@@ -1290,7 +1306,7 @@ Cobertura de la entrega anterior (eventos), sin cambios:
   fijan la fecha en vez de depender de la hora en que corren.
 - **Los borradores se ven en el listado público.** Facilita que el evaluador pruebe
   `?status=draft` y el detalle recién creado; ocultarlos a quien no sea el organizador es una
-  decisión de producto que se tomará junto con las inscripciones.
+  decisión de producto pendiente; hoy la API es la misma para todos los clientes.
 
 ## Decisiones de diseño de las inscripciones
 
@@ -1308,9 +1324,10 @@ Cobertura de la entrega anterior (eventos), sin cambios:
   mismo conteo y ambas insertar. Después de insertar, el servicio recuenta incluyendo solo los
   tickets creados hasta el suyo (los `ObjectId` crecen con el tiempo): si con él se supera la
   capacidad, es el que sobra y se deshace antes de responder. Es el **único borrado físico** del
-  proyecto y solo afecta a una reserva que nunca llegó al cliente. Alternativas descartadas:
-  transacciones de MongoDB (exigen replica set, no siempre disponible en desarrollo) o un lock en
-  memoria (no sirve con más de una instancia).
+  proyecto y solo afecta a una reserva que nunca llegó al cliente. Reduce la ventana de sobreventa a
+  la duración de la escritura y en una instancia se comportó sin fallas bajo estrés; con varias
+  instancias la garantía absoluta exigiría una transacción (replica set) o un contador condicional
+  en el evento. Alternativa descartada: un lock en memoria, que no sirve con más de una instancia.
 - **Cancelar es lógico y solo del dueño o un admin.** El organizador del evento no cancela tickets
   ajenos: no es su acuerdo. Se conserva el documento con `cancelledAt` para historial y auditoría.
 - **El correo va después de persistir y no bloquea.** Primero el ticket, luego el aviso: nunca se

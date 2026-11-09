@@ -29,6 +29,14 @@
     {
       "key": "diegoId",
       "value": ""
+    },
+    {
+      "key": "charlaTicketId",
+      "value": ""
+    },
+    {
+      "key": "ticketId2",
+      "value": ""
     }
   ],
   "item": [
@@ -1079,7 +1087,8 @@
                 "exec": [
                   "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
                   "pm.test(\"estructura { status, data, page, limit, total, totalPages }\", () => pm.expect(Object.keys(pm.response.json()).sort()).to.eql([\"data\",\"limit\",\"page\",\"status\",\"total\",\"totalPages\"]));",
-                  "pm.test(\"page 2, limit 5\", () => { const b = pm.response.json(); pm.expect(b.page).to.eql(2); pm.expect(b.limit).to.eql(5); });"
+                  "pm.test(\"page 2, limit 5\", () => { const b = pm.response.json(); pm.expect(b.page).to.eql(2); pm.expect(b.limit).to.eql(5); });",
+                  "pm.test(\"la página 2 trae datos (con el seed cargado hay más de 5 publicados)\", () => pm.expect(pm.response.json().data.length).to.be.above(0));"
                 ]
               }
             }
@@ -1813,7 +1822,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"responde 201\", () => pm.response.to.have.status(201));"
+                  "pm.test(\"responde 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"ticketId2\", pm.response.json().payload.id);"
                 ]
               }
             }
@@ -1896,7 +1906,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"responde 201\", () => pm.response.to.have.status(201));"
+                  "pm.test(\"responde 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"charlaTicketId\", pm.response.json().payload.id);"
                 ]
               }
             }
@@ -2037,9 +2048,115 @@
               }
             }
           ]
+        },
+        {
+          "name": "Login como diego (user)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "login"
+              ]
+            },
+            "description": "La cookie httpOnly `currentUser` queda en el cookie jar de Postman y viaja sola en las siguientes peticiones. Iniciar sesión con otro usuario la reemplaza.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"diego@cafeaurora.cl\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"mensaje: Login correcto\", () => pm.expect(pm.response.json().message).to.eql(\"Login correcto\"));",
+                  "pm.test(\"setea la cookie currentUser\", () => pm.expect(pm.response.headers.get(\"Set-Cookie\")).to.include(\"currentUser=\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Limpieza: diego cancela su ticket de la charla → 200 (la base queda como la dejó el seed)",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets/{{charlaTicketId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tickets",
+                "{{charlaTicketId}}",
+                "cancel"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Limpieza: diego cancela su ticket del evento creado → 200",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets/{{ticketId2}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tickets",
+                "{{ticketId2}}",
+                "cancel"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
         }
       ],
-      "description": "Inscripción, duplicados, cupos, cancelación y reocupación del cupo."
+      "description": "Inscripción, duplicados, cupos, cancelación y reocupación del cupo. Al final cancela los tickets que creó sobre los eventos del seed para poder repetir la corrida."
     },
     {
       "name": "4 · Sin sesión → 401",
@@ -2193,7 +2310,12 @@
           "name": "Token manipulado → 401",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "currentUser=token.manipulado.xyz"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/sessions/current",
               "host": [
@@ -2205,7 +2327,7 @@
                 "current"
               ]
             },
-            "description": "Para probarlo a mano: en el gestor de cookies de Postman cambia el valor de currentUser por cualquier texto."
+            "description": "Envía explícitamente una cookie currentUser con un token inválido."
           },
           "event": [
             {

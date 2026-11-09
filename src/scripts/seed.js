@@ -11,7 +11,8 @@ import { ROLES } from '../config/roles.config.js';
 import { ESTADOS_EVENTO } from '../config/events.config.js';
 
 // Datos de prueba para instalar y probar la API en minutos: un admin, un organizer y dos
-// usuarios, más cuatro eventos del organizer (tres publicados, uno en borrador).
+// usuarios, más ocho eventos del organizer (siete publicados, uno en borrador): suficientes
+// para que el listado paginado con limit=5 tenga una segunda página con datos.
 //
 //   pnpm seed            (con npm: npm run seed)
 //
@@ -20,7 +21,8 @@ import { ESTADOS_EVENTO } from '../config/events.config.js';
 // creación de usuarios, que en la API vive en la estrategia `register` de Passport: aquí se
 // hashea la contraseña con el mismo utils/hash.js y se guarda por el repositorio.
 
-export const PASSWORD_PRUEBA = 'Aurora2026!';
+// Se puede cambiar con SEED_PASSWORD; el valor por defecto es el documentado en el README
+export const PASSWORD_PRUEBA = process.env.SEED_PASSWORD || 'Aurora2026!';
 
 export const USUARIOS_PRUEBA = [
   { first_name: 'Ana', last_name: 'Admin', email: 'ana@cafeaurora.cl', role: ROLES.ADMIN },
@@ -41,6 +43,10 @@ export const EVENTOS_PRUEBA = [
   { title: 'Cata de cafés de Colombia', description: 'Recorrido por tres orígenes con método V60.', category: 'cata', date: enDias(30), location: 'Café Aurora, Providencia', capacity: 12, price: 15000, publicar: true },
   { title: 'Taller de latte art', description: 'Técnica de vaporizado y vertido para principiantes.', category: 'workshop', date: enDias(45, 18), location: 'Café Aurora, Providencia', capacity: 8, price: 20000, publicar: true },
   { title: 'Charla con productores de Ñuble', description: 'Conversatorio sobre cosecha y comercio justo.', category: 'charla', date: enDias(60, 20), location: 'Café Aurora, Ñuñoa', capacity: 2, price: 0, publicar: true },
+  { title: 'Cata de cafés de Etiopía', description: 'Perfiles florales y frutales en filtrado.', category: 'cata', date: enDias(37), location: 'Café Aurora, Providencia', capacity: 10, price: 15000, publicar: true },
+  { title: 'Taller de métodos de filtrado', description: 'V60, Chemex y AeroPress en una tarde.', category: 'workshop', date: enDias(52, 17), location: 'Café Aurora, Ñuñoa', capacity: 6, price: 25000, publicar: true },
+  { title: 'Charla: café y comercio justo', description: 'Cómo llega el precio a la finca.', category: 'charla', date: enDias(67, 20), location: 'Café Aurora, Providencia', capacity: 25, price: 0, publicar: true },
+  { title: 'Noche de bossa nova', description: 'Dúo de guitarra y voz.', category: 'musica', date: enDias(75, 21), location: 'Café Aurora, Ñuñoa', capacity: 30, price: 8000, publicar: true },
   { title: 'Noche de jazz (borrador)', description: 'Trío en vivo. Fecha por confirmar.', category: 'musica', date: enDias(90, 21), location: 'Café Aurora, Ñuñoa', capacity: 40, price: 8000, publicar: false },
 ];
 
