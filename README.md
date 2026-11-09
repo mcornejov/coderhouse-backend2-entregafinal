@@ -40,6 +40,41 @@ las sostiene. No es un proyecto nuevo: cada módulo del curso agregó una pieza 
 - **Calidad**: 195 tests con MongoDB en memoria, datos de prueba con un comando, colección de Postman
   con el flujo completo.
 
+## Índice
+
+- [Temática elegida](#temática-elegida)
+- [Tecnologías](#tecnologías)
+- [Instalación](#instalación)
+- [Configuración de variables de entorno](#configuración-de-variables-de-entorno)
+- [Cómo ejecutar](#cómo-ejecutar)
+- [Usuarios de prueba](#usuarios-de-prueba)
+- [Arquitectura en capas](#arquitectura-en-capas)
+- [Roles y matriz de permisos](#roles-y-matriz-de-permisos)
+  - [Primer admin](#primer-admin)
+- [Estrategias de Passport](#estrategias-de-passport)
+- [Eventos: modelo, estados y reglas de negocio](#eventos-modelo-estados-y-reglas-de-negocio)
+  - [Estados y transiciones](#estados-y-transiciones)
+  - [Reglas de negocio (en `events.service.js`)](#reglas-de-negocio-en-eventsservicejs)
+- [Inscripciones (tickets): modelo, cupos, cancelación y correo](#inscripciones-tickets-modelo-cupos-cancelación-y-correo)
+  - [Flujo de inscripción (`POST /api/events/:eid/tickets`)](#flujo-de-inscripción-post-apieventseidtickets)
+  - [Regla de cupos](#regla-de-cupos)
+- [Rutas disponibles](#rutas-disponibles)
+- [Cómo probarlo](#cómo-probarlo)
+  - [Colección de Postman](#colección-de-postman)
+  - [Los 10 casos del flujo completo](#los-10-casos-del-flujo-completo)
+  - [Flujo de roles (casos de la consigna)](#flujo-de-roles-casos-de-la-consigna)
+  - [Flujo de eventos (casos de la consigna)](#flujo-de-eventos-casos-de-la-consigna)
+  - [Flujo de inscripciones (casos de la consigna)](#flujo-de-inscripciones-casos-de-la-consigna)
+  - [Suite de tests](#suite-de-tests)
+- [Decisiones de diseño de los eventos](#decisiones-de-diseño-de-los-eventos)
+- [Decisiones de diseño de las inscripciones](#decisiones-de-diseño-de-las-inscripciones)
+- [Decisiones de seguridad](#decisiones-de-seguridad)
+- [Estructura de carpetas](#estructura-de-carpetas)
+  - [Flujo de la autenticación](#flujo-de-la-autenticación)
+  - [Flujo de la autorización](#flujo-de-la-autorización)
+- [Modelos](#modelos)
+- [Fuera del alcance y próximos pasos](#fuera-del-alcance-y-próximos-pasos)
+
 ## Temática elegida
 
 **Café Aurora** es una cafetería de especialidad (marca que acompaña todos mis proyectos de la
