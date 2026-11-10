@@ -557,7 +557,6 @@ Formato de respuesta: éxito `{ "status": "success", "payload": ... }` o
 `{ "status": "success", "message": "..." }`; listados paginados
 `{ "status": "success", "data": [...], "page", "limit", "total", "totalPages" }`; error
 `{ "status": "error", "message": "..." }`.
-Las rutas de sesión mantienen el contrato de las entregas anteriores.
 
 A continuación, el detalle de cada ruta con ejemplos de request y response.
 
@@ -1172,92 +1171,24 @@ cookies (o esperar a que expire). Para cambiar de rol, hacer login con otro usua
 
 ### Suite de tests
 
-Todos los casos anteriores están automatizados:
-
 ```bash
 pnpm test
 ```
 
-Cada archivo de tests levanta su propio MongoDB en memoria, por eso el script los corre de a cuatro
-(`--test-concurrency=4`): en una máquina con poca memoria, lanzar los dieciséis a la vez puede agotar el
-tiempo de conexión.
+195 tests de integración en 16 archivos, con MongoDB en memoria (`mongodb-memory-server`): no hace
+falta una base instalada ni credenciales. Cada archivo levanta su propia instancia, por eso el script
+los corre de a cuatro (`--test-concurrency=4`): lanzar los dieciséis a la vez puede agotar el tiempo
+de conexión en una máquina con poca memoria.
 
-195 tests con MongoDB en memoria. Los 11 de la entrega final:
-
-- `test/flujo-final.test.js`: los 10 casos del "flujo completo a verificar", uno por test, con los
-  mensajes y códigos exactos (incluida la cookie `HttpOnly` en el login y su borrado en el logout).
-- `test/tickets.test.js`: al cancelar se envía el correo de cancelación al dueño del ticket, también
-  cuando lo cancela un admin.
-
-De la pre-entrega 8 (arquitectura), sin cambios:
-
-- `test/architecture.test.js`: existe DAO, repository, service y controller por entidad y un DTO por
-  entidad; reglas de dependencia sobre el código fuente (solo DAOs importan modelos; `mongoose` solo en
-  `models/`, `dao/` y la conexión; services sin DAOs ni modelos; controllers sin modelos, DAOs ni
-  repositories; repositories con DAO inyectado y DTO; routers que componen la cadena; sin `console.log`
-  sueltos); los DTOs omiten `password`, `__v` y `_id`, `toTicketDTO` filtra el usuario poblado y entrega
-  referencias como id cuando no hay populate, `toEventDTO` entrega `organizer` como id.
-- `test/flujo-completo.test.js`: registro → login → `/current` sin password → crear evento → publicar →
-  inscribirse → mis tickets con el evento poblado → inscritos del evento con usuario poblado sin password
-  ni rol → cancelar (estado + fecha, documento conservado, cupo liberado) → logout; ningún hash de
-  bcrypt ni la palabra `password` sale por ninguna respuesta del flujo; error de negocio → `409`, datos
-  inválidos → `400`, inexistente → `404`, transición no permitida → `409`; sin sesión → `401`, sin
-  permisos → `403`, siempre con el formato `{ status: 'error', message }`.
-
-Cobertura de la entrega de inscripciones, sin cambios:
-
-- `test/tickets.test.js`: inscripción exitosa → `201` con ticket `confirmed`, código con formato
-  `AUR-XXXXXXXX` y **un correo** al email del inscrito con asunto, código, lugar y cantidad (el
-  transporte de tests registra los mensajes sin enviarlos); `quantity` > 1; el ticket guarda
-  referencias y no objetos; `user`/`status`/`reservationCode`/`cancelledAt` del body ignorados; sin
-  sesión → `401`; `organizer` y `admin` también se inscriben; evento inexistente → `404`, id inválido →
-  `400`; evento `draft`/`cancelled`/`finished` → `409` con el motivo y sin correo; evento publicado
-  con fecha pasada → `409`; `quantity` inválida (9 variantes) → `400`; duplicado activo → `409` con el
-  código, y tras cancelar se puede volver a inscribir; un ticket `pending` cuenta como activo; el
-  índice único parcial rechaza el duplicado en la base y deja pasar al cancelado; si el SMTP falla la
-  inscripción igual responde `201`. Cancelación: propia → `200` con `cancelledAt` y el documento se
-  conserva; libera el cupo (la siguiente inscripción funciona); ticket ajeno como `user` → `403` sin
-  cambios; el organizador del evento tampoco, el `admin` sí; dos veces → `409`; inexistente → `404`.
-- `test/tickets-cupos.test.js`: nunca se confirman más lugares que la capacidad y los cancelados
-  no cuentan (secuencia 2+2, rechazo de 2 con 1 libre, llenado, cancelación y reocupación);
-  **8 inscripciones simultáneas a 3 cupos → exactamente 3 confirmadas**, sin sobreventa y sin
-  reservas fantasma en la base; el servicio deshace solo la reserva más reciente cuando el recuento
-  supera la capacidad (repositorio falso); el correo se envía después de persistir; 1000 códigos de
-  reserva distintos y legibles; estados congelados. `my-tickets`: solo los propios, con `event`
-  poblado (`id, title, date, location`), del más reciente al más antiguo, sin datos de otros, con
-  historial de cancelados y `[]` cuando no hay. `GET /api/events/:eid/tickets`: organizer dueño →
-  `200` con `cuposOcupados`/`cuposDisponibles` (el cancelado no cuenta) e inscritos poblados sin
-  contraseña ni rol; filtro `?status=`; `user` → `403`; organizer ajeno → `403`; admin → `200`;
-  inexistente → `404`; sin sesión → `401`.
-
-Cobertura de la pre-entrega 6 (eventos), sin cambios:
-
-- `test/events-rules.test.js`: fecha pasada al crear y al modificar → `400` sin tocar la base; el
-  instante exacto de "ahora" también cuenta como pasado (reloj inyectado al servicio);
-  `description` y `category` obligatorios y de texto; largo máximo de los textos (`400` con el
-  límite en el mensaje; el esquema lo repite); `category` normalizada a minúsculas;
-  `organizer` guardado como referencia; el esquema de Mongoose rechaza `capacity: 0` y estados
-  inventados; `PUT` sobre un evento `cancelled` o `finished` → `409` (también para `admin`); la
-  propiedad se verifica antes que el estado (`403` para el intruso); la escritura condicional
-  responde `409` si el evento cambió de estado entre leer y escribir.
-- `test/events-status.test.js`: la tabla de transiciones es la de la consigna y está congelada;
-  publicar, cancelar (el documento sigue en la base y en el detalle) y finalizar; `admin` sobre
-  eventos ajenos; campos extra del body ignorados; evento cancelado o finalizado → `409`;
-  transiciones no permitidas y estado repetido → `409`; publicar con fecha pasada → `409` (cancelar
-  sí); `status` ausente, inválido, `null`, numérico o arreglo → `400` sin cambiar nada; otro
-  `organizer` → `403`; `user` → `403`; sin sesión → `401`; inexistente → `404`; id inválido → `400`;
-  id en mayúsculas se trata igual; `409` si cambió en el medio y `404` si desapareció.
-- `test/events-list.test.js` (12 eventos sembrados, uno por mes): formato
-  `{ status, data, page, limit, total, totalPages }` con defaults `page=1`, `limit=10`;
-  `page=2&limit=5` devuelve los eventos 6 a 10; página fuera de rango → `200` vacía; DTO en cada
-  elemento; `page`/`limit` inválidos o repetidos → `400`; filtros `status`, `category` (sin
-  distinguir mayúsculas), el caso exacto de la consigna
-  `?status=published&category=workshop&page=2&limit=5`, `location` por texto contenido con
-  caracteres especiales escapados (`.*` no encuentra nada), rango `dateFrom`/`dateTo` inclusivo con
-  `dateTo` sin hora = día completo y sin zona = UTC; filtros inválidos → `400`; parámetros desconocidos ignorados;
-  orden por defecto, `sort=-date`, `price`, `title`, `capacity`; campos no ordenables → `400`;
-  páginas sin repetir ni perder eventos con la misma fecha; y el servicio entrega al repositorio
-  criterios neutros, sin operadores de MongoDB.
+| Área | Archivos | Qué verifican |
+|------|----------|---------------|
+| Flujo completo | `flujo-final.test.js`, `flujo-completo.test.js` | Los [10 casos del flujo completo](#los-10-casos-del-flujo-completo), uno por test, con códigos y mensajes exactos (cookie `HttpOnly` en el login y su borrado en el logout); el recorrido registro → login → crear evento → publicar → inscribirse → mis tickets → inscritos → cancelar → logout por todas las capas, sin que ningún hash ni la palabra `password` salga en ninguna respuesta |
+| Arquitectura | `architecture.test.js` | DAO, repository, service y controller por entidad y un DTO por entidad; reglas de dependencia leídas del código fuente (solo los DAOs importan modelos; `mongoose` solo en `models/`, `dao/` y la conexión; services sin DAOs ni modelos; controllers sin modelos, DAOs ni repositories; repositories con el DAO inyectado y DTO; routers que componen la cadena; sin `console.log` sueltos); los DTOs omiten `password`, `__v` y `_id` y filtran los documentos poblados |
+| Arranque y API base | `config.test.js`, `api.test.js` | Fail-Fast de `JWT_EXPIRES_IN` (numérico = segundos, con unidad, inválido o cero) y de `JWT_SECRET`; `/api/health`, listado vacío, `404` de evento y de ruta, id inválido, URL mal codificada y JSON roto → `400` |
+| Sesión | `register.test.js`, `auth.test.js`, `passport.test.js` | Registro: email normalizado, hash de bcrypt en la base, rol del body ignorado, `400` por campos, formato y largo de contraseña (8 caracteres, 72 bytes), `409` duplicado. Login: cookie `httpOnly`, JWT solo con `{ id, email, role }`, `401` genérico, `400` sin campos; `/current` con cookie o `Bearer`, `401` sin token, manipulado, expirado o con algoritmo `none`; el logout borra la cookie. Passport: estrategias registradas, el controller (no la estrategia) firma el JWT, fallos en JSON, credenciales solo desde el body, payload con otra forma → `401` |
+| Autorización | `authorize.test.js`, `users.test.js` | Matriz de permisos congelada; `authorize(...roles)` deja pasar, `403` por rol, `401` sin `auth` antes, `TypeError` con roles desconocidos; las rutas no comparan roles a mano; tabla 401 vs 403 de **todas** las rutas privadas. `/api/users`: solo admin y sin contraseñas; asignar rol (rige en el próximo login; `400` rol inválido o propio rol, también con el id en mayúsculas; `404`) |
+| Eventos | `events.test.js`, `events-rules.test.js`, `events-status.test.js`, `events-list.test.js` | Crear y modificar por rol y por propiedad (`organizer` dueño, `admin`, intruso → `403` sin cambios); `organizer`/`status` del body ignorados; fecha pasada al crear y al modificar con reloj inyectado; obligatorios, largos máximos y `category` normalizada; eventos `cancelled`/`finished` inmutables también para `admin`; escritura condicional → `409` si cambió de estado en el medio, `404` si desapareció; body > 100 KB → `413`. Máquina de estados: tabla congelada, transiciones permitidas y prohibidas, mismo estado, publicar con fecha pasada, `status` ausente o inválido → `400`. Listado: formato paginado y defaults, página fuera de rango, filtros (`status`, `category`, `location` con caracteres escapados, rango de fechas inclusivo), orden con desempate por id, `400` por parámetros inválidos o repetidos, criterios neutros hacia el repositorio |
+| Inscripciones | `tickets.test.js`, `tickets-cupos.test.js` | Inscripción `201` con código `AUR-…` y **un correo** al inscrito; `quantity` > 1 e inválida (9 variantes → `400`); referencias y no objetos; campos del body ignorados; `401`, `404`, `400`; evento `draft`/`cancelled`/`finished` o ya ocurrido → `409` sin correo; duplicado activo → `409` con el código (en el servicio y en el índice parcial), y tras cancelar se puede volver a inscribir; SMTP caído → igual `201`. Cancelación: propia `200` con `cancelledAt`, ajena → `403` (también para el organizador del evento), admin sí, dos veces → `409`, correo al dueño también si cancela un admin. Cupos: nunca más lugares que la capacidad, los cancelados no cuentan, **8 inscripciones simultáneas a 3 cupos → exactamente 3 confirmadas** sin reservas fantasma, el servicio deshace solo la más reciente, el correo va después de persistir, 1000 códigos distintos. `my-tickets` solo propios con `event` poblado; inscritos por evento con `cuposOcupados`/`cuposDisponibles`, usuario poblado sin contraseña ni rol, filtro `?status`, `403` para `user` y para un organizer ajeno |
 
 ## Decisiones de diseño de los eventos
 
@@ -1476,8 +1407,8 @@ coderhouse-backend2-entregafinal/
 │   ├── architecture.test.js          # reglas de dependencia entre capas y DTOs sin password (análisis del código)
 │   ├── flujo-completo.test.js        # registro → login → evento → publicar → inscribirse → mis tickets → cancelar
 │   ├── flujo-final.test.js           # los 10 casos del flujo completo de la entrega final, uno por test
-│   ├── api.test.js
-│   ├── register.test.js
+│   ├── api.test.js                   # health, listado vacío, 404 de ruta, URL mal codificada y JSON inválido
+│   ├── register.test.js              # registro: normalización, hash, rol del body ignorado, 400 y 409
 │   ├── auth.test.js                  # login, current, logout, flujo completo
 │   ├── passport.test.js              # estrategias registradas, separación app.js / config, JSON en fallos
 │   ├── authorize.test.js             # matriz, middleware authorize, tabla 401 vs 403 de todas las rutas privadas

@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 dotenv.config({ quiet: true });
 
 // Variables obligatorias para que la aplicación pueda iniciar.
-// JWT_SECRET es obligatoria desde el login: sin ella no se pueden firmar ni verificar tokens.
+// JWT_SECRET lo es porque sin ella no se pueden firmar ni verificar los tokens de sesión.
 const REQUERIDAS = ['PORT', 'NODE_ENV', 'MONGO_URL', 'JWT_SECRET'];
 
 // Validación Fail-Fast: si falta alguna variable obligatoria, la app no arranca
@@ -56,7 +56,7 @@ if (mailHost && (!Number.isInteger(mailPort) || mailPort < 1 || mailPort > 65535
   process.exit(1);
 }
 if (!mailHost && process.env.NODE_ENV !== 'test') {
-  console.warn('Aviso: MAIL_HOST no está definido; los correos de confirmación se registran en consola y no se envían.');
+  console.warn('Aviso: MAIL_HOST no está definido; los correos de inscripción se registran en consola y no se envían.');
 }
 
 const config = {

@@ -1,11 +1,9 @@
 import mongoose from 'mongoose';
 import { USER_ROLES, DEFAULT_ROLE } from '../config/roles.config.js';
 
-// Los roles y la matriz de permisos viven en config/roles.config.js. El valor por defecto
-// es el de menor privilegio; organizer y admin solo se asignan por un proceso controlado
-// (ruta administrativa o script), nunca desde el registro público.
-export { USER_ROLES };
-
+// Los roles y la matriz de permisos viven en config/roles.config.js; el esquema solo los usa
+// como enum. El valor por defecto es el de menor privilegio; organizer y admin se asignan por
+// un proceso controlado (ruta administrativa o script), nunca desde el registro público.
 const userSchema = new mongoose.Schema(
   {
     first_name: { type: String, required: true, trim: true },

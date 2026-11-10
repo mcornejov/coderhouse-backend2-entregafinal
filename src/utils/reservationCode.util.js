@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 
 // Código de reserva legible: prefijo + 8 caracteres de un alfabeto sin símbolos ambiguos
 // (sin 0/O ni 1/I/L) para que se pueda dictar o copiar de un correo sin confusiones.
-// 32^8 ≈ 1,1 billones de combinaciones; el índice único del modelo cubre la colisión improbable.
+// 31^8 ≈ 850 mil millones de combinaciones; el índice único del modelo cubre la colisión improbable.
 const ALFABETO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const LARGO = 8;
 export const PREFIJO_RESERVA = 'AUR';

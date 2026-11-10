@@ -4,7 +4,7 @@ import { ESTADOS_TICKET, QUANTITY_MIN, QUANTITY_MAX, esEstadoTicketValido, TICKE
 import { BadRequestError, NotFoundError, ForbiddenError, ConflictError } from '../utils/errors.util.js';
 import { generarCodigoReserva } from '../utils/reservationCode.util.js';
 
-// Intentos de generar un código de reserva no repetido (la colisión es improbable: 32^8)
+// Intentos de generar un código de reserva no repetido (la colisión es improbable: 31^8 combinaciones)
 const INTENTOS_CODIGO = 3;
 
 // Capa de negocio de las inscripciones. No conoce HTTP ni Mongoose. Códigos que lanza:

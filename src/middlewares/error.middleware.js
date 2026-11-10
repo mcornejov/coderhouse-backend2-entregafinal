@@ -41,8 +41,9 @@ export function errorHandler(error, req, res, next) {
     return responderError(res, 400, mensaje);
   }
 
-  // Índice único violado. keyPattern dice qué índice fue: hoy solo el email de User;
-  // cualquier otro índice único futuro recibe un mensaje genérico en vez de uno equivocado.
+  // Índice único violado. keyPattern dice qué índice fue: el email de User o la inscripción
+  // activa (user + event) de Ticket, cuando dos peticiones simultáneas esquivan la verificación
+  // del servicio. Cualquier otro índice único recibe un mensaje genérico en vez de uno equivocado.
   if (error.code === 11000) {
     const campos = Object.keys(error.keyPattern ?? {});
     let mensaje = 'Ya existe un registro con esos datos';
