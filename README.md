@@ -474,8 +474,28 @@ aunque dos peticiones lleguen al mismo tiempo. Los estados y límites viven en `
 | Estado | Significa | Ocupa cupo | Cómo se llega |
 |--------|-----------|:----------:|---------------|
 | `confirmed` | Inscripción vigente | Sí | `POST /api/events/:eid/tickets` |
-| `pending` | Reservado a la espera de confirmación (previsto para un flujo de pago; hoy ninguna ruta lo produce) | Sí | — |
+| `pending` | Lugar reservado a la espera de una confirmación externa (pago) | Sí | Hoy ninguna ruta lo produce |
 | `cancelled` | Cancelada por el usuario o un admin; se conserva como historial | No | `PATCH /api/tickets/:tid/cancel` |
+
+**Cómo y cuándo se pasa de un estado a otro:**
+
+```
+POST /api/events/:eid/tickets ──► confirmed ──► cancelled   (PATCH /api/tickets/:tid/cancel)
+                                      ▲              ▲
+                         (pago)       │              │
+                        pending ──────┴──────────────┘
+```
+
+| Desde | Hacia | Cuándo |
+|-------|-------|--------|
+| (no existe) | `confirmed` | Al inscribirse. La inscripción no requiere pago en línea, así que no hay nada que esperar: si pasa las validaciones y hay cupo, nace confirmada y se envía el correo de confirmación |
+| `confirmed` | `cancelled` | El dueño del ticket o un admin la cancela. Se registra `cancelledAt`, el cupo queda libre y se envía el correo de cancelación |
+| `pending` | `confirmed` | Reservado para un flujo de pago: el ticket nacería `pending` reteniendo el cupo y pasaría a `confirmed` al acreditarse el pago. **No está implementado**: ninguna ruta crea ni confirma tickets `pending` |
+| `pending` | `cancelled` | Misma ruta de cancelación (un `pending` es un ticket activo). Sería también el destino de un pago que no se acredita |
+| `cancelled` | — | Estado final: no se reactiva. Para volver, el usuario se inscribe de nuevo y obtiene otro ticket con otro código |
+
+`pending` existe en el `enum` porque la consigna lo pide y el resto del sistema ya lo trata de forma
+coherente: cuenta como activo para los cupos, bloquea la inscripción duplicada y se puede cancelar.
 
 ### Flujo de inscripción (`POST /api/events/:eid/tickets`)
 
