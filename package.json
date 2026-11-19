@@ -1,5 +1,5 @@
 {
-  "name": "cafe-aurora-eventos",
+  "name": "coderhouse-backend2-entregafinal",
   "version": "1.0.0",
   "description": "Plataforma de Eventos e Inscripciones de Café Aurora (Backend II, entrega final): API REST con Express en capas formales (routes, controllers, services, repositories, DAO, DTO), MongoDB con Mongoose, autenticación con Passport (JWT en cookie httpOnly), roles y autorización por propiedad, eventos con reglas de negocio, filtros y paginación, inscripciones con control de cupos y correos con Nodemailer.",
   "type": "module",
