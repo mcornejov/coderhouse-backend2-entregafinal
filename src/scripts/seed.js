@@ -7,6 +7,7 @@ import EventsDao from '../dao/events.dao.js';
 import EventsRepository from '../repositories/events.repository.js';
 import EventsService from '../services/events.service.js';
 import { hashPassword } from '../utils/hash.js';
+import { PASSWORD_MIN_LENGTH, isPasswordTooLong } from '../utils/validators.js';
 import { ROLES } from '../config/roles.config.js';
 import { ESTADOS_EVENTO } from '../config/events.config.js';
 
@@ -16,7 +17,8 @@ import { ESTADOS_EVENTO } from '../config/events.config.js';
 //
 //   pnpm seed            (con npm: npm run seed)
 //
-// Es idempotente: si un usuario o un evento ya existe, lo deja como está. Nunca borra nada.
+// Es idempotente: si un usuario o un evento ya existe, lo deja como está (solo termina de publicar
+// un evento que haya quedado en borrador por una ejecución interrumpida). Nunca borra nada.
 // Pasa por las mismas capas que la API (service → repository → dao); la única excepción es la
 // creación de usuarios, que en la API vive en la estrategia `register` de Passport: aquí se
 // hashea la contraseña con el mismo utils/hash.js y se guarda por el repositorio.
@@ -77,28 +79,50 @@ async function asegurarUsuario(datos) {
   return { usuario: { id: creado.id, ...datos }, estado: 'creado' };
 }
 
+// Busca el evento del organizer por título recorriendo todas las páginas de su categoría
+async function buscarEvento(contenido, organizer) {
+  const limit = 50;
+  for (let page = 1; ; page++) {
+    const { data, total } = await eventsRepository.buscar({ category: contenido.category }, { page, limit, orden: { date: 1 } });
+    const encontrado = data.find((e) => e.title === contenido.title && e.organizer === organizer.id);
+    if (encontrado || page * limit >= total) return encontrado ?? null;
+  }
+}
+
 async function asegurarEvento(datos, organizer) {
   const { publicar, ...contenido } = datos;
-  const { data } = await eventsRepository.buscar({ category: contenido.category }, { page: 1, limit: 50, orden: { date: 1 } });
-  if (data.some((e) => e.title === contenido.title && e.organizer === organizer.id)) {
+  const solicitante = { id: organizer.id, role: organizer.role };
+  const existente = await buscarEvento(contenido, organizer);
+  if (existente) {
+    // Una ejecución anterior pudo cortarse entre crear y publicar
+    if (publicar && existente.status === ESTADOS_EVENTO.DRAFT) {
+      await eventsService.cambiarEstado(existente.id, { status: ESTADOS_EVENTO.PUBLISHED }, solicitante);
+      return 'ya existía (publicado ahora)';
+    }
     return 'ya existía';
   }
-  const creado = await eventsService.crear(contenido, { id: organizer.id, role: organizer.role });
+  const creado = await eventsService.crear(contenido, solicitante);
   if (publicar) {
-    await eventsService.cambiarEstado(creado.id, { status: ESTADOS_EVENTO.PUBLISHED }, { id: organizer.id, role: organizer.role });
+    await eventsService.cambiarEstado(creado.id, { status: ESTADOS_EVENTO.PUBLISHED }, solicitante);
     return 'creado y publicado';
   }
   return 'creado (draft)';
 }
 
 try {
+  // Misma regla que el registro: con una contraseña más corta o más larga no se podría iniciar sesión
+  if (PASSWORD_PRUEBA.length < PASSWORD_MIN_LENGTH || isPasswordTooLong(PASSWORD_PRUEBA)) {
+    throw new Error(`SEED_PASSWORD debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres y no superar los 72 bytes`);
+  }
   await conectarDB();
   console.log(`Base: ${config.mongoUrl.replace(/\/\/[^/]*@/, '//***@')}`);
 
   const usuarios = [];
+  let creados = 0;
   for (const datos of USUARIOS_PRUEBA) {
     const { usuario, estado } = await asegurarUsuario(datos);
     usuarios.push(usuario);
+    if (estado === 'creado') creados += 1;
     console.log(`Usuario ${usuario.email.padEnd(22)} ${usuario.role.padEnd(9)} ${estado}`);
   }
 
@@ -108,7 +132,13 @@ try {
     console.log(`Evento  ${datos.title.padEnd(40)} ${estado}`);
   }
 
-  console.log(`\nContraseña de todos los usuarios de prueba: ${PASSWORD_PRUEBA}`);
+  if (creados === USUARIOS_PRUEBA.length) {
+    console.log(`\nContraseña de todos los usuarios de prueba: ${PASSWORD_PRUEBA}`);
+  } else if (creados > 0) {
+    console.log(`\nContraseña de los usuarios creados ahora: ${PASSWORD_PRUEBA} (los que ya existían conservan la suya)`);
+  } else {
+    console.log('\nLos usuarios ya existían y conservan su contraseña (por defecto, la documentada en el README).');
+  }
   console.log('Inicia sesión con POST /api/sessions/login y sigue el flujo del README.');
 } catch (error) {
   console.error(`No fue posible cargar los datos de prueba: ${error.message}`);
