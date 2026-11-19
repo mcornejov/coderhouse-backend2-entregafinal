@@ -7,7 +7,12 @@ async function iniciar() {
   try {
     await conectarDB();
 
-    app.listen(config.port, () => {
+    // Express 5 llama a este callback también cuando listen falla (por ejemplo, puerto ocupado)
+    app.listen(config.port, (error) => {
+      if (error) {
+        console.error(`No fue posible escuchar en el puerto ${config.port}: ${error.message}`);
+        process.exit(1);
+      }
       console.log(`Servidor escuchando en http://localhost:${config.port} (${config.nodeEnv})`);
     });
   } catch (error) {
