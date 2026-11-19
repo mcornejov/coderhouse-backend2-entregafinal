@@ -18,7 +18,22 @@ if (archivos.length === 0) {
   archivos.push(...todos.map((nombre) => path.join(carpeta, nombre)));
 }
 
-const mongod = await MongoMemoryServer.create();
+// El puerto libre se elige un instante antes de que MongoDB lo tome: si otro proceso lo ocupa
+// justo en ese momento, el arranque falla. Se reintenta un par de veces antes de rendirse.
+async function iniciarMongo(intentos = 3) {
+  for (let intento = 1; ; intento++) {
+    try {
+      return await MongoMemoryServer.create();
+    } catch (error) {
+      if (intento === intentos) {
+        console.error(`No fue posible iniciar MongoDB en memoria para los tests: ${error.message}`);
+        process.exit(1);
+      }
+    }
+  }
+}
+
+const mongod = await iniciarMongo();
 
 const suite = spawn(
   process.execPath,
