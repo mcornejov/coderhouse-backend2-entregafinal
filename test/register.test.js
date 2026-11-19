@@ -95,6 +95,20 @@ describe('POST /api/sessions/register', () => {
     assert.equal(await User.countDocuments(), 0);
   });
 
+  test('responde 400 si el nombre, el apellido o el email superan el largo máximo', async () => {
+    const casos = [
+      [{ first_name: 'a'.repeat(101) }, 'El campo first_name no puede superar los 100 caracteres'],
+      [{ last_name: 'a'.repeat(101) }, 'El campo last_name no puede superar los 100 caracteres'],
+      [{ email: `${'a'.repeat(250)}@mail.com` }, 'El email no puede superar los 254 caracteres'],
+    ];
+    for (const [cambio, mensaje] of casos) {
+      const res = await request(app).post(REGISTER).send({ ...usuarioValido, ...cambio });
+      assert.equal(res.status, 400);
+      assert.deepEqual(res.body, { status: 'error', message: mensaje });
+    }
+    assert.equal(await User.countDocuments(), 0);
+  });
+
   test('acepta una contraseña de exactamente 72 bytes', async () => {
     const res = await request(app).post(REGISTER).send({ ...usuarioValido, password: 'a'.repeat(72) });
     assert.equal(res.status, 201);

@@ -9,6 +9,10 @@ export const PASSWORD_MIN_LENGTH = 8;
 // las contraseñas se compararían truncadas, así que se rechazan en la frontera.
 export const PASSWORD_MAX_BYTES = 72;
 
+// Largos máximos de los textos del usuario (254 es el máximo práctico de una dirección de correo)
+export const NAME_MAX_LENGTH = 100;
+export const EMAIL_MAX_LENGTH = 254;
+
 export function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
 }

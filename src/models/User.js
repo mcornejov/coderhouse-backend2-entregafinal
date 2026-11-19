@@ -1,14 +1,15 @@
 import mongoose from 'mongoose';
 import { USER_ROLES, DEFAULT_ROLE } from '../config/roles.config.js';
+import { NAME_MAX_LENGTH, EMAIL_MAX_LENGTH } from '../utils/validators.js';
 
 // Los roles y la matriz de permisos viven en config/roles.config.js; el esquema solo los usa
 // como enum. El valor por defecto es el de menor privilegio; organizer y admin se asignan por
 // un proceso controlado (ruta administrativa o script), nunca desde el registro público.
 const userSchema = new mongoose.Schema(
   {
-    first_name: { type: String, required: true, trim: true },
-    last_name: { type: String, required: true, trim: true },
-    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    first_name: { type: String, required: true, trim: true, maxlength: NAME_MAX_LENGTH },
+    last_name: { type: String, required: true, trim: true, maxlength: NAME_MAX_LENGTH },
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true, maxlength: EMAIL_MAX_LENGTH },
     // Siempre almacena el hash generado con bcrypt, nunca la contraseña original
     password: { type: String, required: true },
     role: { type: String, enum: USER_ROLES, default: DEFAULT_ROLE },

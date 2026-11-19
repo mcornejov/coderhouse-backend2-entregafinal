@@ -17,6 +17,8 @@ import {
   normalizeEmail,
   PASSWORD_MIN_LENGTH,
   PASSWORD_MAX_BYTES,
+  NAME_MAX_LENGTH,
+  EMAIL_MAX_LENGTH,
 } from '../utils/validators.js';
 
 // Configuración centralizada de Passport. Aquí viven TODAS las estrategias de
@@ -75,7 +77,15 @@ export function crearEstrategias(usersRepository) {
         throw new BadRequestError('Faltan campos obligatorios');
       }
 
-      // 2. Formato de email y largo de contraseña
+      // 2. Largo de los textos, formato de email y largo de contraseña
+      for (const campo of ['first_name', 'last_name']) {
+        if (datos[campo].trim().length > NAME_MAX_LENGTH) {
+          throw new BadRequestError(`El campo ${campo} no puede superar los ${NAME_MAX_LENGTH} caracteres`);
+        }
+      }
+      if (datos.email.trim().length > EMAIL_MAX_LENGTH) {
+        throw new BadRequestError(`El email no puede superar los ${EMAIL_MAX_LENGTH} caracteres`);
+      }
       if (!isValidEmail(datos.email)) {
         throw new BadRequestError('El email no tiene un formato válido');
       }
