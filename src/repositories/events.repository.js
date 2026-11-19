@@ -59,4 +59,9 @@ export default class EventsRepository {
   async liberarCupos(id, cantidad) {
     await this.dao.releaseSeats(id, cantidad);
   }
+
+  /** Deja el contador de lugares reservados en el valor indicado (tarea de mantenimiento). */
+  async fijarCuposReservados(id, cantidad) {
+    await this.dao.setSeatsTaken(id, cantidad);
+  }
 }

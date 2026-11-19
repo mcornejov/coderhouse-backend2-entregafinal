@@ -93,7 +93,7 @@ describe('Flujo completo a verificar (entrega final)', () => {
     const otro = await crearEventoPublicado(organizer, { title: 'Otro', capacity: 3 });
     await inscribir(otro.id, ana, { quantity: 2 });
     const insuficiente = await inscribir(otro.id, bruno, { quantity: 2 });
-    assert.deepEqual([insuficiente.status, insuficiente.body], [409, { status: 'error', message: 'No hay cupo suficiente: quedan 1 lugares y solicitaste 2' }]);
+    assert.deepEqual([insuficiente.status, insuficiente.body], [409, { status: 'error', message: 'No hay cupo suficiente: queda 1 lugar y solicitaste 2' }]);
   });
 
   test('6. user cancela su ticket → cupo liberado → nueva inscripción funciona', async () => {

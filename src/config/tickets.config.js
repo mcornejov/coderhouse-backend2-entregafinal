@@ -14,7 +14,8 @@ export const TICKET_STATUSES = Object.freeze(Object.values(ESTADOS_TICKET));
 // ocuparía cupo igual que una confirmada: un lugar reservado no se vende dos veces.
 export const DEFAULT_TICKET_STATUS = ESTADOS_TICKET.CONFIRMED;
 
-// Estados que ocupan cupo. Un ticket cancelled no cuenta: al cancelar, el cupo se libera solo.
+// Estados que ocupan cupo. Un ticket cancelled no cuenta: al cancelar, el servicio devuelve
+// sus lugares al contador del evento.
 export const ESTADOS_ACTIVOS = Object.freeze([ESTADOS_TICKET.CONFIRMED, ESTADOS_TICKET.PENDING]);
 
 // Lugares que puede reservar una sola inscripción (por ejemplo, para acompañantes)

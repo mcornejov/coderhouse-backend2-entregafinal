@@ -185,7 +185,7 @@ describe('POST /api/events/:eid/tickets (inscripción)', () => {
     const otro = await crearUsuarioConRol('user', 'otro@mail.com');
     const sinCupo = await inscribir(evento.id, otro, { quantity: 2 });
     assert.equal(sinCupo.status, 409);
-    assert.equal(sinCupo.body.message, 'No hay cupo suficiente: quedan 1 lugares y solicitaste 2');
+    assert.equal(sinCupo.body.message, 'No hay cupo suficiente: queda 1 lugar y solicitaste 2');
   });
 
   test('el índice único de la base también impide el duplicado activo (segunda barrera) → 409', async () => {

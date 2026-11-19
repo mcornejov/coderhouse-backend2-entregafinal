@@ -36,7 +36,7 @@ describe('Control de cupos', () => {
     assert.equal((await inscribir(evento.id, b, { quantity: 2 })).status, 201); // 4/5
     const sinCupo = await inscribir(evento.id, c, { quantity: 2 });            // 6 > 5
     assert.equal(sinCupo.status, 409);
-    assert.equal(sinCupo.body.message, 'No hay cupo suficiente: quedan 1 lugares y solicitaste 2');
+    assert.equal(sinCupo.body.message, 'No hay cupo suficiente: queda 1 lugar y solicitaste 2');
     assert.equal((await inscribir(evento.id, c, { quantity: 1 })).status, 201); // 5/5
     const lleno = await inscribir(evento.id, d);
     assert.equal(lleno.status, 409);
@@ -99,6 +99,7 @@ describe('Control de cupos', () => {
 
     const detalle = await request(app).get(`/api/events/${evento.id}`);
     assert.equal('seatsTaken' in detalle.body.payload, false, 'el contador es interno: no sale en el DTO');
+    assert.equal(detalle.body.payload.updatedAt, evento.updatedAt, 'inscribir y cancelar no cuentan como modificar el evento');
   });
 
   test('si la reserva atómica no entra, no se crea el ticket ni se envía correo', async () => {
@@ -118,7 +119,7 @@ describe('Control de cupos', () => {
     const service = new TicketsService(tickets, events, {}, mail);
     await assert.rejects(service.inscribir('e1', {}, { id: 'u1', email: 'u@x.com', role: 'user' }), {
       status: 409,
-      message: 'El evento no tiene cupos disponibles',
+      message: 'No hay cupo suficiente para la cantidad solicitada',
     });
     assert.equal(creados, 0);
     assert.equal(correos, 0);

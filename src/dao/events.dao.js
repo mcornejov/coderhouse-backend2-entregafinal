@@ -27,6 +27,10 @@ function construirConsulta(filtro) {
   return consulta;
 }
 
+// El contador de lugares es un dato interno: moverlo no cuenta como una modificación del evento,
+// así que no debe cambiar su updatedAt.
+const SIN_TIMESTAMPS = { timestamps: false };
+
 export default class EventsDao {
   async create(eventData) {
     const evento = await Event.create(eventData);
@@ -91,12 +95,18 @@ export default class EventsDao {
         $expr: { $lte: [{ $add: [{ $ifNull: ['$seatsTaken', 0] }, cantidad] }, '$capacity'] },
       },
       { $inc: { seatsTaken: cantidad } },
+      SIN_TIMESTAMPS,
     );
     return resultado.modifiedCount === 1;
   }
 
   /** Devuelve lugares reservados (cancelación o inscripción que no llegó a crearse). Nunca baja de 0. */
   async releaseSeats(id, cantidad) {
-    await Event.updateOne({ _id: id, seatsTaken: { $gte: cantidad } }, { $inc: { seatsTaken: -cantidad } });
+    await Event.updateOne({ _id: id, seatsTaken: { $gte: cantidad } }, { $inc: { seatsTaken: -cantidad } }, SIN_TIMESTAMPS);
+  }
+
+  /** Fija el contador de lugares reservados (mantenimiento: ver scripts/recalcular-cupos.js). */
+  async setSeatsTaken(id, cantidad) {
+    await Event.updateOne({ _id: id }, { $set: { seatsTaken: cantidad } }, SIN_TIMESTAMPS);
   }
 }

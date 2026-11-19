@@ -199,7 +199,8 @@ export default class TicketsService {
       throw new ConflictError('El evento no tiene cupos disponibles');
     }
     if (disponibles < quantity) {
-      throw new ConflictError(`No hay cupo suficiente: quedan ${disponibles} lugares y solicitaste ${quantity}`);
+      const restantes = disponibles === 1 ? 'queda 1 lugar' : `quedan ${disponibles} lugares`;
+      throw new ConflictError(`No hay cupo suficiente: ${restantes} y solicitaste ${quantity}`);
     }
   }
 
@@ -210,7 +211,8 @@ export default class TicketsService {
     this.#verificarEventoDisponible(evento);
     const ocupados = await this.tickets.contarCuposOcupados(evento.id);
     this.#verificarCupo(evento, ocupados, quantity);
-    throw new ConflictError('El evento no tiene cupos disponibles');
+    // Otra inscripción ya reservó el lugar pero su ticket todavía no se cuenta: no se sabe cuántos quedan
+    throw new ConflictError('No hay cupo suficiente para la cantidad solicitada');
   }
 
   // El índice único (user, event) activo puede rechazar una inscripción duplicada simultánea;

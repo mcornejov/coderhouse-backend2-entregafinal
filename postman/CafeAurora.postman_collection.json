@@ -1515,7 +1515,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"responde 409\", () => pm.response.to.have.status(409));",
-                  "pm.test(\"mensaje: No hay cupo suficiente: quedan 1 lugares y solicitaste 2\", () => pm.expect(pm.response.json().message).to.eql(\"No hay cupo suficiente: quedan 1 lugares y solicitaste 2\"));"
+                  "pm.test(\"mensaje: No hay cupo suficiente: queda 1 lugar y solicitaste 2\", () => pm.expect(pm.response.json().message).to.eql(\"No hay cupo suficiente: queda 1 lugar y solicitaste 2\"));"
                 ]
               }
             }
