@@ -31,5 +31,10 @@ const detener = async (codigo) => {
   process.exit(codigo);
 };
 
+// Si interrumpen al lanzador, la señal se reenvía a la suite; al cerrarse, se detiene MongoDB
+for (const senal of ['SIGINT', 'SIGTERM']) {
+  process.on(senal, () => suite.kill(senal));
+}
+
 suite.on('error', () => detener(1));
 suite.on('close', (codigo) => detener(codigo ?? 1));
