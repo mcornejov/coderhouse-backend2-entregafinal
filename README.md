@@ -1,8 +1,8 @@
 # Café Aurora · Plataforma de Eventos e Inscripciones
 
 Proyecto de **Backend II** de CoderHouse: una API REST con Express organizada por capas y
-persistencia en MongoDB, que crece entrega a entrega hacia una plataforma completa de eventos
-con autenticación, roles, inscripciones y control de cupos.
+persistencia en MongoDB para gestionar los eventos de una cafetería, con autenticación, roles,
+inscripciones y control de cupos.
 
 **Entrega final.** Esta es la versión completa e integrada de la API: la evolución de las ocho
 pre-entregas en un solo repositorio, con todas sus funcionalidades y la arquitectura por capas que
@@ -37,7 +37,7 @@ las sostiene. No es un proyecto nuevo: cada módulo del curso agregó una pieza 
 - **Arquitectura**: `routes → controllers → services → repositories → dao → models`, DTOs en usuario,
   evento y ticket, middleware centralizado de errores (`400/401/403/404/409/413/500`), reglas de
   dependencia verificadas por tests.
-- **Calidad**: 195 tests con MongoDB en memoria, datos de prueba con un comando, colección de Postman
+- **Calidad**: 200 tests con MongoDB en memoria, datos de prueba con un comando, colección de Postman
   con el flujo completo.
 
 ## Índice
@@ -165,7 +165,8 @@ pnpm seed
 Crea, si no existen, cuatro usuarios y ocho eventos del organizador (siete publicados y un
 borrador: así `?status=published&page=2&limit=5` devuelve una segunda página con datos). Es
 idempotente (volver a correrlo no duplica ni borra nada) y pasa por las mismas capas que la API. La
-contraseña de prueba se puede cambiar con la variable `SEED_PASSWORD` antes de correrlo.
+contraseña de prueba se puede cambiar con la variable `SEED_PASSWORD` antes de correrlo (mínimo 8
+caracteres; solo se aplica a los usuarios que el script crea, los que ya existían conservan la suya).
 
 | Email | Rol | Contraseña | Para qué sirve |
 |-------|-----|------------|----------------|
@@ -207,7 +208,7 @@ HTTP ──► routes ──► controllers ──► services ──► reposit
 | **routes** | Declarar rutas y middlewares (`auth`, `authorize`) y **componer** la cadena: `new Controller(new Service(new Repository(new Dao())))` | controllers, services, repositories, dao, middlewares, config | models | `src/routes/*.router.js` |
 | **controllers** | Coordinar request/response: extraer `body`/`params`/`query`/`req.user`, llamar al service, responder con el helper uniforme; los errores van a `next` | utils/responses | models, dao, repositories, mongoose | `src/controllers/*.controller.js` |
 | **services** | **Toda la lógica de negocio**: validaciones de contenido, fecha futura, estados y transiciones, cupos, duplicados, propiedad del recurso (organizer dueño / dueño del ticket / admin), envío del correo. Lanzan `HttpError` con el código correcto | repositories (por inyección), config, utils | dao, models, mongoose | `src/services/*.service.js` |
-| **repositories** | Intermediario orientado al dominio: reciben el DAO por constructor, traducen cada resultado a **DTO** y ofrecen operaciones con nombre de negocio (`findCredentialsByEmail`, `existsByEmail`, `buscar` paginado, `actualizarSiModificable`, `cambiarEstado`, `findActiveByUserAndEvent`, `contarCuposOcupados`, `cancelar`) | dto, config | models, dao (los reciben, no los importan), mongoose | `src/repositories/*.repository.js` |
+| **repositories** | Intermediario orientado al dominio: reciben el DAO por constructor, traducen cada resultado a **DTO** y ofrecen operaciones con nombre de negocio (`findCredentialsByEmail`, `existsByEmail`, `buscar` paginado, `actualizarSiModificable`, `cambiarEstado`, `reservarCupos`, `liberarCupos`, `findActiveByUserAndEvent`, `contarCuposOcupados`, `cancelar`) | dto, config | models, dao (los reciben, no los importan), mongoose | `src/repositories/*.repository.js` |
 | **dao** | **Único acceso a Mongoose**: `create`, `findById`, `findOne`, `find` + `countDocuments`, `findOneAndUpdate` condicional, `aggregate`, `populate`. Traducen criterios neutros a `$regex`/`$gte`/`$in`. Devuelven objetos planos (`lean`) | models, mongoose | nada de capas superiores | `src/dao/*.dao.js` |
 | **models** | Esquemas de Mongoose: tipos, obligatorios, `enum`, rangos, índices. Segunda barrera detrás del servicio | config (enums) | — | `src/models/*.js` |
 | **dto** | Qué sale de la capa de datos: `toUserDTO`, `toSessionDTO`, `toEventDTO`, `toTicketDTO`. Convierten `ObjectId` a texto, omiten `_id`/`__v`, **nunca incluyen `password`** y, si la consulta pobló una referencia, filtran también el documento relacionado | — | — | `src/dto/*.dto.js` |
@@ -384,6 +385,7 @@ usuario en `req.user` y el controller emite la misma cookie `currentUser` de sie
 | `capacity` | Number | Obligatorio, entero **mayor que 0** |
 | `price` | Number | Opcional, número **mayor o igual a 0** (por defecto `0`) |
 | `status` | String | `enum` `draft` \| `published` \| `cancelled` \| `finished`. Nace en `draft`; solo cambia por `PATCH .../status` |
+| `seatsTaken` | Number | **Interno**: lugares reservados por inscripciones activas. Solo lo mueve la capa de datos al inscribir y al cancelar (ver [Regla de cupos](#regla-de-cupos)); no se acepta desde el body ni sale en las respuestas |
 | `organizer` | ObjectId → `User` | **Referencia**, nunca el usuario embebido. Se toma de la sesión al crear; el body no puede fijarlo ni cambiarlo |
 | `createdAt`, `updatedAt` | Date | Timestamps de Mongoose |
 
@@ -422,6 +424,7 @@ conservan su historial. No hay `DELETE /api/events/:eid`.
 | `date` en formato ISO 8601 con día existente | crear, modificar | `400` `El campo date debe ser una fecha válida en formato ISO 8601` |
 | `date` posterior al momento actual | crear, modificar | `400` `La fecha del evento no puede ser pasada` |
 | `capacity` entero > 0 · `price` número ≥ 0 | crear, modificar | `400` `El campo capacity debe ser un entero mayor que 0` · `El campo price debe ser un número mayor o igual a 0` |
+| `capacity` no baja de los lugares ya reservados | modificar | `409` `La capacidad no puede ser menor que los lugares ya reservados` |
 | `organizer` sale de `req.user`; `organizer` y `status` del body se ignoran | crear, modificar | se descartan en silencio (whitelist de campos) |
 | Solo el `organizer` dueño o un `admin` modifican o cambian el estado | modificar, estado | `403` `Solo puedes modificar tus propios eventos` |
 | Un evento `cancelled` o `finished` no se modifica ni cambia de estado | modificar, estado | `409` `El evento está cancelado y no admite modificaciones` · `El evento ya finalizó y no admite modificaciones` |
@@ -509,12 +512,12 @@ coherente: cuenta como activo para los cupos, bloquea la inscripción duplicada 
 6. **Cupo suficiente**: `disponibles = capacity − Σ quantity de tickets activos` debe ser `≥ quantity`
    → si no, `409` (`El evento no tiene cupos disponibles` o `No hay cupo suficiente: quedan N lugares
    y solicitaste M`).
-7. Se crea el ticket `confirmed` con su `reservationCode`.
-8. **Recuento de seguridad**: si dos inscripciones simultáneas pasaron el paso 6 con el mismo conteo y
-   juntas superan la capacidad, la más reciente se deshace antes de responder y recibe el `409` del
-   paso 6. Esto reduce la ventana de sobreventa a la duración de la escritura (en pruebas de
-   estrés con doce inscripciones simultáneas a tres cupos no se superó la capacidad); una garantía
-   absoluta con varias instancias exigiría una transacción o un contador condicional.
+7. **Reserva atómica del cupo**: dos inscripciones simultáneas pueden pasar el paso 6 con el mismo
+   conteo, así que la decisión final la toma la base en una sola operación sobre el evento: si sigue
+   `published` y `seatsTaken + quantity ≤ capacity`, suma `quantity` a `seatsTaken`; si no, no escribe
+   y la petición recibe el `409` del paso 4 o del paso 6. Solo entran las que caben.
+8. Se crea el ticket `confirmed` con su `reservationCode`. Si la creación falla (por ejemplo, una
+   segunda inscripción simultánea del mismo usuario), se devuelve el cupo reservado.
 9. **Correo de confirmación** con Nodemailer, después de persistir y sin bloquear la respuesta.
 10. `201` con el ticket.
 
@@ -525,10 +528,22 @@ ocupados    = suma de quantity de los tickets del evento con status confirmed o 
 disponibles = capacity − ocupados
 ```
 
-Los tickets `cancelled` **no se cuentan**: al cancelar, el cupo queda libre de inmediato sin tocar
-el evento ni llevar contadores aparte (no hay nada que desincronizar). `GET /api/events/:eid/tickets`
-devuelve `cuposOcupados` y `cuposDisponibles` calculados así. La capacidad del evento no cambia al
-inscribirse; es el dato de referencia del organizador.
+Los tickets `cancelled` **no se cuentan**. `GET /api/events/:eid/tickets` devuelve `cuposOcupados` y
+`cuposDisponibles` calculados así, y la capacidad del evento no cambia al inscribirse: es el dato de
+referencia del organizador.
+
+Para que dos inscripciones simultáneas no tomen el mismo lugar, el evento lleva además un contador
+interno, `seatsTaken`, que la base actualiza con una operación atómica condicionada:
+
+```
+inscribir → updateOne({ _id, status: 'published', seatsTaken + quantity ≤ capacity }, { $inc: { seatsTaken: quantity } })
+cancelar  → updateOne({ _id }, { $inc: { seatsTaken: −quantity } })
+```
+
+MongoDB evalúa la condición y aplica el incremento sobre el mismo documento sin que otra escritura se
+intercale: de ocho inscripciones simultáneas a tres cupos entran exactamente tres. El contador no
+sale en las respuestas ni se acepta desde el body, y tampoco se puede bajar `capacity` por debajo de
+él (`409`).
 
 ### Cancelación (`PATCH /api/tickets/:tid/cancel`)
 
@@ -536,7 +551,7 @@ Cancelación **lógica**: `status = cancelled` y `cancelledAt = ahora`; el docum
 `my-tickets` y en el listado del evento como historial). Reglas: el ticket existe (`404`), pertenece a
 quien pide o quien pide es `admin` (`403` si no; el organizador del evento tampoco puede), y no está ya
 cancelado (`409`). La escritura exige que el ticket siga activo, así dos cancelaciones simultáneas no se
-pisan. No hay `DELETE`.
+pisan y el cupo se devuelve al evento una sola vez. No hay `DELETE`.
 
 ### Correos (Nodemailer)
 
@@ -606,6 +621,8 @@ Response `201`:
 | Código | Cuándo | Cuerpo |
 |--------|--------|--------|
 | `400` | Faltan campos obligatorios | `{ "status": "error", "message": "Faltan campos obligatorios" }` |
+| `400` | Nombre o apellido de más de 100 caracteres | `{ "status": "error", "message": "El campo first_name no puede superar los 100 caracteres" }` |
+| `400` | Email de más de 254 caracteres | `{ "status": "error", "message": "El email no puede superar los 254 caracteres" }` |
 | `400` | Email con formato inválido | `{ "status": "error", "message": "El email no tiene un formato válido" }` |
 | `400` | Contraseña menor a 8 caracteres | `{ "status": "error", "message": "La contraseña debe tener al menos 8 caracteres" }` |
 | `400` | Contraseña mayor a 72 bytes | `{ "status": "error", "message": "La contraseña no puede superar los 72 bytes" }` |
@@ -1195,20 +1212,24 @@ cookies (o esperar a que expire). Para cambiar de rol, hacer login con otro usua
 pnpm test
 ```
 
-195 tests de integración en 16 archivos, con MongoDB en memoria (`mongodb-memory-server`): no hace
-falta una base instalada ni credenciales. Cada archivo levanta su propia instancia, por eso el script
-los corre de a cuatro (`--test-concurrency=4`): lanzar los dieciséis a la vez puede agotar el tiempo
-de conexión en una máquina con poca memoria.
+200 tests de integración en 16 archivos, con MongoDB en memoria (`mongodb-memory-server`): no hace
+falta una base instalada ni credenciales.
+
+`pnpm test` ejecuta `test/run.js`, que levanta **una sola instancia** de MongoDB en memoria y después
+corre los archivos de test en paralelo; cada archivo usa una base de datos propia dentro de esa
+instancia (`test/setup.js`), así que no comparten datos. El binario de MongoDB se descarga una única
+vez, antes de que haya procesos en paralelo: la primera ejecución en una máquina nueva demora más
+por esa descarga. Para correr un solo archivo: `node test/run.js test/tickets.test.js`.
 
 | Área | Archivos | Qué verifican |
 |------|----------|---------------|
 | Flujo completo | `flujo-final.test.js`, `flujo-completo.test.js` | Los [10 casos del flujo completo](#los-10-casos-del-flujo-completo), uno por test, con códigos y mensajes exactos (cookie `HttpOnly` en el login y su borrado en el logout); el recorrido registro → login → crear evento → publicar → inscribirse → mis tickets → inscritos → cancelar → logout por todas las capas, sin que ningún hash ni la palabra `password` salga en ninguna respuesta |
 | Arquitectura | `architecture.test.js` | DAO, repository, service y controller por entidad y un DTO por entidad; reglas de dependencia leídas del código fuente (solo los DAOs importan modelos; `mongoose` solo en `models/`, `dao/` y la conexión; services sin DAOs ni modelos; controllers sin modelos, DAOs ni repositories; repositories con el DAO inyectado y DTO; routers que componen la cadena; sin `console.log` sueltos); los DTOs omiten `password`, `__v` y `_id` y filtran los documentos poblados |
 | Arranque y API base | `config.test.js`, `api.test.js` | Fail-Fast de `JWT_EXPIRES_IN` (numérico = segundos, con unidad, inválido o cero) y de `JWT_SECRET`; `/api/health`, listado vacío, `404` de evento y de ruta, id inválido, URL mal codificada y JSON roto → `400` |
-| Sesión | `register.test.js`, `auth.test.js`, `passport.test.js` | Registro: email normalizado, hash de bcrypt en la base, rol del body ignorado, `400` por campos, formato y largo de contraseña (8 caracteres, 72 bytes), `409` duplicado. Login: cookie `httpOnly`, JWT solo con `{ id, email, role }`, `401` genérico, `400` sin campos; `/current` con cookie o `Bearer`, `401` sin token, manipulado, expirado o con algoritmo `none`; el logout borra la cookie. Passport: estrategias registradas, el controller (no la estrategia) firma el JWT, fallos en JSON, credenciales solo desde el body, payload con otra forma → `401` |
+| Sesión | `register.test.js`, `auth.test.js`, `passport.test.js` | Registro: email normalizado, hash de bcrypt en la base, rol del body ignorado, `400` por campos, formato, largo de nombre y email, y largo de contraseña (8 caracteres, 72 bytes), `409` duplicado. Login: cookie `httpOnly`, JWT solo con `{ id, email, role }`, `401` genérico, `400` sin campos; `/current` con cookie o `Bearer`, `401` sin token, manipulado, expirado o con algoritmo `none`; el logout borra la cookie. Passport: estrategias registradas, el controller (no la estrategia) firma el JWT, fallos en JSON, credenciales solo desde el body, payload con otra forma → `401` |
 | Autorización | `authorize.test.js`, `users.test.js` | Matriz de permisos congelada; `authorize(...roles)` deja pasar, `403` por rol, `401` sin `auth` antes, `TypeError` con roles desconocidos; las rutas no comparan roles a mano; tabla 401 vs 403 de **todas** las rutas privadas. `/api/users`: solo admin y sin contraseñas; asignar rol (rige en el próximo login; `400` rol inválido o propio rol, también con el id en mayúsculas; `404`) |
 | Eventos | `events.test.js`, `events-rules.test.js`, `events-status.test.js`, `events-list.test.js` | Crear y modificar por rol y por propiedad (`organizer` dueño, `admin`, intruso → `403` sin cambios); `organizer`/`status` del body ignorados; fecha pasada al crear y al modificar con reloj inyectado; obligatorios, largos máximos y `category` normalizada; eventos `cancelled`/`finished` inmutables también para `admin`; escritura condicional → `409` si cambió de estado en el medio, `404` si desapareció; body > 100 KB → `413`. Máquina de estados: tabla congelada, transiciones permitidas y prohibidas, mismo estado, publicar con fecha pasada, `status` ausente o inválido → `400`. Listado: formato paginado y defaults, página fuera de rango, filtros (`status`, `category`, `location` con caracteres escapados, rango de fechas inclusivo), orden con desempate por id, `400` por parámetros inválidos o repetidos, criterios neutros hacia el repositorio |
-| Inscripciones | `tickets.test.js`, `tickets-cupos.test.js` | Inscripción `201` con código `AUR-…` y **un correo** al inscrito; `quantity` > 1 e inválida (9 variantes → `400`); referencias y no objetos; campos del body ignorados; `401`, `404`, `400`; evento `draft`/`cancelled`/`finished` o ya ocurrido → `409` sin correo; duplicado activo → `409` con el código (en el servicio y en el índice parcial), y tras cancelar se puede volver a inscribir; SMTP caído → igual `201`. Cancelación: propia `200` con `cancelledAt`, ajena → `403` (también para el organizador del evento), admin sí, dos veces → `409`, correo al dueño también si cancela un admin. Cupos: nunca más lugares que la capacidad, los cancelados no cuentan, **8 inscripciones simultáneas a 3 cupos → exactamente 3 confirmadas** sin reservas fantasma, el servicio deshace solo la más reciente, el correo va después de persistir, 1000 códigos distintos. `my-tickets` solo propios con `event` poblado; inscritos por evento con `cuposOcupados`/`cuposDisponibles`, usuario poblado sin contraseña ni rol, filtro `?status`, `403` para `user` y para un organizer ajeno |
+| Inscripciones | `tickets.test.js`, `tickets-cupos.test.js` | Inscripción `201` con código `AUR-…` y **un correo** al inscrito; `quantity` > 1 e inválida (9 variantes → `400`); referencias y no objetos; campos del body ignorados; `401`, `404`, `400`; evento `draft`/`cancelled`/`finished` o ya ocurrido → `409` sin correo; duplicado activo → `409` con el código (en el servicio y en el índice parcial), y tras cancelar se puede volver a inscribir; SMTP caído → igual `201`. Cancelación: propia `200` con `cancelledAt`, ajena → `403` (también para el organizador del evento), admin sí, dos veces → `409`, correo al dueño también si cancela un admin. Cupos: nunca más lugares que la capacidad, los cancelados no cuentan, **8 inscripciones simultáneas a 3 cupos → exactamente 3 confirmadas**, cantidades distintas en simultáneo sin superar la capacidad ni dejar lugares libres, el contador `seatsTaken` coincide con los tickets activos (duplicados y cancelaciones simultáneas lo devuelven una sola vez), si la reserva no entra no hay ticket ni correo, `capacity` no baja de lo reservado (`409`), el correo va después de persistir, 1000 códigos distintos. `my-tickets` solo propios con `event` poblado; inscritos por evento con `cuposOcupados`/`cuposDisponibles`, usuario poblado sin contraseña ni rol, filtro `?status`, `403` para `user` y para un organizer ajeno |
 
 ## Decisiones de diseño de los eventos
 
@@ -1261,24 +1282,26 @@ de conexión en una máquina con poca memoria.
 
 ## Decisiones de diseño de las inscripciones
 
-- **Cupo derivado, no contador.** `disponibles = capacity − Σ quantity activos` se calcula con una
-  agregación sobre los tickets cada vez que hace falta. Alternativa descartada: un campo
-  `cuposOcupados` en `Event` que se incrementa y decrementa; es más rápido de leer pero se desincroniza
-  ante cualquier fallo a mitad de camino y obliga a recalcularlo. La consigna pide justamente que
-  cancelar libere el cupo "por no contarse en el cálculo".
+- **Los tickets son la fuente de lo que se informa; el contador decide quién entra.**
+  `cuposOcupados` y `cuposDisponibles` se calculan con una agregación sobre los tickets activos, como
+  pide la consigna (cancelar libera el cupo "por no contarse en el cálculo"). El contador
+  `seatsTaken` del evento existe solo para admitir inscripciones de forma atómica.
 - **Una inscripción activa por usuario y evento, con `quantity`.** Quien va con acompañantes reserva
   varios lugares en un solo ticket (máximo 10). Las canceladas no bloquean una nueva.
 - **El duplicado se impide dos veces**: el servicio lo detecta y responde con el código existente
   (`409` claro), y un índice único parcial en la base lo garantiza también cuando dos peticiones del
   mismo usuario llegan al mismo tiempo (el error de clave duplicada se traduce al mismo `409`).
-- **Sobreventa bajo concurrencia sin transacciones.** Dos inscripciones simultáneas pueden leer el
-  mismo conteo y ambas insertar. Después de insertar, el servicio recuenta incluyendo solo los
-  tickets creados hasta el suyo (los `ObjectId` crecen con el tiempo): si con él se supera la
-  capacidad, es el que sobra y se deshace antes de responder. Es el **único borrado físico** del
-  proyecto y solo afecta a una reserva que nunca llegó al cliente. Reduce la ventana de sobreventa a
-  la duración de la escritura y en una instancia se comportó sin fallas bajo estrés; con varias
-  instancias la garantía absoluta exigiría una transacción (replica set) o un contador condicional
-  en el evento. Alternativa descartada: un lock en memoria, que no sirve con más de una instancia.
+- **Sobreventa bajo concurrencia sin transacciones.** Leer el conteo y después insertar deja una
+  ventana en la que dos inscripciones ven el mismo lugar libre. La primera versión insertaba, recontaba
+  "los tickets creados hasta el mío" y deshacía el sobrante; una prueba de concurrencia mostró que
+  fallaba, porque el `ObjectId` se genera antes de insertar y el orden de los ids no es el orden en
+  que los tickets llegan a la base. Se reemplazó por la reserva atómica en el documento del evento
+  (`updateOne` con la condición de cupo y `$inc`), que no depende del orden ni de cuántas instancias
+  del servidor haya. Alternativas descartadas: una transacción (exige replica set, que el entorno
+  local y los tests no tienen) y un lock en memoria (no sirve con más de una instancia). Costo
+  asumido: son dos escrituras (evento y ticket) sin transacción; si el proceso se cayera justo entre
+  ambas quedaría un lugar reservado sin ticket, que se corrige recalculando el contador desde los
+  tickets activos.
 - **Cancelar es lógico y solo del dueño o un admin.** El organizador del evento no cancela tickets
   ajenos: no es su acuerdo. Se conserva el documento con `cancelledAt` para historial y auditoría.
 - **El correo va después de persistir y no bloquea.** Primero el ticket, luego el aviso: nunca se
@@ -1383,16 +1406,16 @@ coderhouse-backend2-entregafinal/
 │   │   └── sessions.controller.js    # HTTP: responde códigos, firma el JWT y setea/borra la cookie
 │   ├── services/
 │   │   ├── events.service.js         # reglas: obligatorios, fecha futura, cupo/precio, propiedad, estados, filtros/paginación
-│   │   ├── tickets.service.js        # inscripción (evento publicado, duplicados, cupos, recuento), cancelación lógica + aviso, listados
+│   │   ├── tickets.service.js        # inscripción (evento publicado, duplicados, cupos, reserva atómica), cancelación lógica + aviso, listados
 │   │   ├── mail.service.js           # correos de confirmación y cancelación; un fallo se registra, no rompe la operación
 │   │   └── users.service.js          # administración: listar usuarios, asignar rol válido
 │   ├── repositories/
-│   │   ├── events.repository.js      # buscar paginado, getById, actualizarSiModificable, cambiarEstado; devuelve DTOs
+│   │   ├── events.repository.js      # buscar paginado, getById, actualizarSiModificable, cambiarEstado, reservarCupos, liberarCupos; devuelve DTOs
 │   │   ├── tickets.repository.js     # create, findByUser/Event (poblados), activo por usuario y evento, contarCuposOcupados, cancelar
 │   │   └── users.repository.js       # acceso a datos; devuelve DTOs sin contraseña
 │   ├── dao/
-│   │   ├── events.dao.js             # única capa con Mongoose: traduce criterios a $regex/$gte/$in, find+count
-│   │   ├── tickets.dao.js            # populate de event/user, aggregate de cupos, update condicional, removeById (rollback)
+│   │   ├── events.dao.js             # única capa con Mongoose: traduce criterios a $regex/$gte/$in, find+count, reserva atómica de lugares
+│   │   ├── tickets.dao.js            # populate de event/user, aggregate de cupos, update condicional
 │   │   └── users.dao.js              # única capa que usa el modelo User de Mongoose
 │   ├── dto/
 │   │   ├── user.dto.js               # toUserDTO (registro, listado) y toSessionDTO ({ id, email, role })
@@ -1420,6 +1443,7 @@ coderhouse-backend2-entregafinal/
 │       ├── errors.util.js            # HttpError y errores 400 / 401 / 403 / 404 / 409
 │       └── responses.util.js         # helpers de respuesta uniforme (payload, message, listado paginado)
 ├── test/
+│   ├── run.js                        # lanzador: una instancia de MongoDB en memoria para toda la suite
 │   ├── env.js                        # variables mínimas para la suite
 │   ├── setup.js                      # MongoDB en memoria para los tests
 │   ├── helpers.js                    # crearUsuarioConRol(role), crearEventoPublicado(usuario)
@@ -1509,7 +1533,8 @@ POST /api/events/:eid/tickets  { quantity: 2 }  (cookie de un user)
   → tickets.controller     inscribir(req.params.eid, req.body, req.user)
   → tickets.service        quantity válida (400) → evento existe (404) → published y futuro (409)
                            → sin ticket activo del usuario (409) → cupo suficiente (409)
-  → tickets.repository/dao Ticket.create → recuento hasta este ticket (deshace si sobra) → DTO
+  → events.repository/dao  reserva atómica del cupo en el evento (409 si no entra)
+  → tickets.repository/dao Ticket.create → DTO
   → mail.service           enviarConfirmacionInscripcion (después de persistir, sin bloquear)
   → tickets.controller     201 con el ticket
 
