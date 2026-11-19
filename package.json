@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --import ./test/env.js --test --test-concurrency=4 test/*.test.js",
+    "test": "node test/run.js",
     "asignar-rol": "node src/scripts/asignar-rol.js",
     "seed": "node src/scripts/seed.js"
   },
