@@ -71,7 +71,7 @@ las sostiene. No es un proyecto nuevo: cada módulo del curso agregó una pieza 
 - [Decisiones de seguridad](#decisiones-de-seguridad)
 - [Estructura de carpetas](#estructura-de-carpetas)
   - [Flujo de la autenticación](#flujo-de-la-autenticación)
-  - [Flujo de la autorización](#flujo-de-la-autorización)
+  - [Flujo de una petición por las capas](#flujo-de-una-petición-por-las-capas)
 - [Modelos](#modelos)
 - [Fuera del alcance y próximos pasos](#fuera-del-alcance-y-próximos-pasos)
 
@@ -79,7 +79,7 @@ las sostiene. No es un proyecto nuevo: cada módulo del curso agregó una pieza 
 
 **Café Aurora** es una cafetería de especialidad (marca que acompaña todos mis proyectos de la
 carrera Fullstack) que organiza eventos para su comunidad: catas de café, talleres de barismo,
-charlas con productores y noches de música en vivo. La plataforma permitirá publicar esos eventos
+charlas con productores y noches de música en vivo. La plataforma permite publicar esos eventos
 y gestionar las inscripciones de los clientes.
 
 ## Tecnologías
@@ -150,6 +150,7 @@ pnpm dev        # desarrollo: reinicia automáticamente al guardar cambios
 pnpm test       # suite de tests (usa MongoDB en memoria, no necesita base instalada)
 pnpm seed       # carga usuarios y eventos de prueba en la base del .env (ver "Usuarios de prueba")
 pnpm asignar-rol <email> <rol>      # asigna un rol a un usuario registrado (ver "Primer admin")
+pnpm recalcular-cupos               # mantenimiento: recalcula los lugares reservados (ver "Regla de cupos")
 ```
 
 Con la configuración por defecto el servidor queda disponible en `http://localhost:8080`.
@@ -206,19 +207,19 @@ HTTP ──► routes ──► controllers ──► services ──► reposit
 | Capa | Responsabilidad | Puede importar | Nunca importa | Archivos |
 |------|-----------------|----------------|---------------|----------|
 | **routes** | Declarar rutas y middlewares (`auth`, `authorize`) y **componer** la cadena: `new Controller(new Service(new Repository(new Dao())))` | controllers, services, repositories, dao, middlewares, config | models | `src/routes/*.router.js` |
-| **controllers** | Coordinar request/response: extraer `body`/`params`/`query`/`req.user`, llamar al service, responder con el helper uniforme; los errores van a `next` | utils/responses | models, dao, repositories, mongoose | `src/controllers/*.controller.js` |
+| **controllers** | Coordinar request/response: extraer `body`/`params`/`query`/`req.user`, llamar al service, responder con el helper uniforme; los errores van a `next` | utils (responses, jwt, cookies) | models, dao, repositories, mongoose | `src/controllers/*.controller.js` |
 | **services** | **Toda la lógica de negocio**: validaciones de contenido, fecha futura, estados y transiciones, cupos, duplicados, propiedad del recurso (organizer dueño / dueño del ticket / admin), envío del correo. Lanzan `HttpError` con el código correcto | repositories (por inyección), config, utils | dao, models, mongoose | `src/services/*.service.js` |
 | **repositories** | Intermediario orientado al dominio: reciben el DAO por constructor, traducen cada resultado a **DTO** y ofrecen operaciones con nombre de negocio (`findCredentialsByEmail`, `existsByEmail`, `buscar` paginado, `actualizarSiModificable`, `cambiarEstado`, `reservarCupos`, `liberarCupos`, `findActiveByUserAndEvent`, `contarCuposOcupados`, `cancelar`) | dto, config | models, dao (los reciben, no los importan), mongoose | `src/repositories/*.repository.js` |
-| **dao** | **Único acceso a Mongoose**: `create`, `findById`, `findOne`, `find` + `countDocuments`, `findOneAndUpdate` condicional, `aggregate`, `populate`. Traducen criterios neutros a `$regex`/`$gte`/`$in`. Devuelven objetos planos (`lean`) | models, mongoose | nada de capas superiores | `src/dao/*.dao.js` |
+| **dao** | **Único acceso a Mongoose**: `create`, `findById`, `findOne`, `find` + `countDocuments`, `findOneAndUpdate` condicional, `updateOne` con `$inc` condicional, `aggregate`, `populate`. Traducen criterios neutros a `$regex`/`$gte`/`$in`. Devuelven objetos planos (`lean`) | models, mongoose | nada de capas superiores | `src/dao/*.dao.js` |
 | **models** | Esquemas de Mongoose: tipos, obligatorios, `enum`, rangos, índices. Segunda barrera detrás del servicio | config (enums) | — | `src/models/*.js` |
 | **dto** | Qué sale de la capa de datos: `toUserDTO`, `toSessionDTO`, `toEventDTO`, `toTicketDTO`. Convierten `ObjectId` a texto, omiten `_id`/`__v`, **nunca incluyen `password`** y, si la consulta pobló una referencia, filtran también el documento relacionado | — | — | `src/dto/*.dto.js` |
 | **middlewares** | `auth` (Passport `current` → `req.user` o `401`), `authorize(...roles)` (`403`), `notFound`, `errorHandler` (traduce `HttpError`, errores del parser, `ValidationError`, `CastError`, E11000 → 400/401/403/404/409/413/500 con `{ status: 'error', message }`) | utils, config | models, dao | `src/middlewares/*.js` |
 | **config** | Entorno (Fail-Fast), conexión, Passport, roles y matriz `PERMISOS`, estados de evento y ticket, correo | repositories/dao solo en `passport.config.js` (raíz de composición de las estrategias) | — | `src/config/*.js` |
 
 **Raíces de composición.** La cadena se arma en un solo lugar por recurso: cada router. Además
-`config/passport.config.js` arma `new UsersRepository(new UsersDao())` para las estrategias y
-`scripts/asignar-rol.js` arma la cadena de usuarios para la línea de comandos. Son los únicos puntos
-fuera de `routes/` que conocen un DAO, y solo para construirlo.
+`config/passport.config.js` arma `new UsersRepository(new UsersDao())` para las estrategias y los
+scripts (`asignar-rol.js`, `seed.js` y `recalcular-cupos.js` en `scripts/`) arman sus cadenas para la línea de comandos.
+Son los únicos puntos fuera de `routes/` que conocen un DAO.
 
 **Una entidad, una cadena.** `users`, `events` y `tickets` tienen cada uno su DAO, su repository, su
 service y su controller (`src/<capa>/<entidad>.<capa>.js`), y hay un DTO por entidad (`user`, `event`,
@@ -511,7 +512,8 @@ coherente: cuenta como activo para los cupos, bloquea la inscripción duplicada 
    la existente. Una inscripción cancelada no cuenta: se puede volver a inscribir.
 6. **Cupo suficiente**: `disponibles = capacity − Σ quantity de tickets activos` debe ser `≥ quantity`
    → si no, `409` (`El evento no tiene cupos disponibles` o `No hay cupo suficiente: quedan N lugares
-   y solicitaste M`).
+   y solicitaste M`; si otra inscripción simultánea tomó el lugar en ese instante, `No hay cupo
+   suficiente para la cantidad solicitada`).
 7. **Reserva atómica del cupo**: dos inscripciones simultáneas pueden pasar el paso 6 con el mismo
    conteo, así que la decisión final la toma la base en una sola operación sobre el evento: si sigue
    `published` y `seatsTaken + quantity ≤ capacity`, suma `quantity` a `seatsTaken`; si no, no escribe
@@ -537,13 +539,17 @@ interno, `seatsTaken`, que la base actualiza con una operación atómica condici
 
 ```
 inscribir → updateOne({ _id, status: 'published', seatsTaken + quantity ≤ capacity }, { $inc: { seatsTaken: quantity } })
-cancelar  → updateOne({ _id }, { $inc: { seatsTaken: −quantity } })
+cancelar  → updateOne({ _id, seatsTaken ≥ quantity }, { $inc: { seatsTaken: −quantity } })
 ```
 
 MongoDB evalúa la condición y aplica el incremento sobre el mismo documento sin que otra escritura se
 intercale: de ocho inscripciones simultáneas a tres cupos entran exactamente tres. El contador no
 sale en las respuestas ni se acepta desde el body, y tampoco se puede bajar `capacity` por debajo de
 él (`409`).
+
+`pnpm recalcular-cupos` deja el contador de cada evento igual a la suma de sus tickets activos. Solo
+hace falta en una base que ya tenía inscripciones antes de existir el contador, o si el servidor se
+cayó justo entre reservar el cupo y crear el ticket; en una base nueva no hay que correrlo.
 
 ### Cancelación (`PATCH /api/tickets/:tid/cancel`)
 
@@ -722,7 +728,7 @@ ascendente. Todos los parámetros son opcionales y se combinan entre sí.
 | `sort` | `date` · `price` · `title` · `capacity` · `createdAt`, con `-` delante para descendente (por defecto `date`) | Orden. Siempre se desempata por id para que las páginas no repitan ni pierdan eventos |
 
 ```bash
-curl "http://localhost:8080/api/events?status=published&category=workshop&page=2&limit=5"
+curl "http://localhost:8080/api/events?status=published&page=2&limit=5"
 curl "http://localhost:8080/api/events?location=providencia&dateFrom=2027-03-01&dateTo=2027-03-31&sort=-price"
 ```
 
@@ -731,7 +737,7 @@ Response `200`:
 ```json
 {
   "status": "success",
-  "data": [ { "id": "6690...", "title": "Taller de latte art", "description": "...", "category": "workshop", "date": "2027-04-01T18:00:00.000Z", "location": "Café Aurora, Providencia", "capacity": 8, "price": 20000, "status": "published", "organizer": "665f2a...", "createdAt": "...", "updatedAt": "..." } ],
+  "data": [ { "id": "6690...", "title": "Charla: café y comercio justo", "description": "...", "category": "charla", "date": "2027-04-01T20:00:00.000Z", "location": "Café Aurora, Providencia", "capacity": 25, "price": 0, "status": "published", "organizer": "665f2a...", "createdAt": "...", "updatedAt": "..." } ],
   "page": 2,
   "limit": 5,
   "total": 7,
@@ -850,7 +856,7 @@ Response `201`:
 | `404` | El evento no existe | `{ "status": "error", "message": "No existe un evento con id ..." }` |
 | `409` | Evento no publicado | `El evento todavía no está publicado` · `El evento está cancelado` · `El evento ya finalizó` · `El evento ya ocurrió` |
 | `409` | Inscripción activa previa | `Ya tienes una inscripción activa para este evento (código AUR-...)` |
-| `409` | Sin cupo | `El evento no tiene cupos disponibles` · `No hay cupo suficiente: quedan 1 lugares y solicitaste 2` |
+| `409` | Sin cupo | `El evento no tiene cupos disponibles` · `No hay cupo suficiente: queda 1 lugar y solicitaste 2` |
 
 `user`, `status`, `reservationCode` y `cancelledAt` del body se ignoran: el usuario es el de la sesión,
 el ticket nace `confirmed` y el código lo genera el servidor.
@@ -948,8 +954,8 @@ el Collection Runner.
 3. Ejecuta las carpetas en orden (o toda la colección con el Runner). La cookie `currentUser` la
    administra Postman solo: cada "Login como ..." reemplaza la sesión anterior.
 4. El correo del caso 3 se ve en la consola del servidor (sin `MAIL_HOST`) o en el buzón configurado
-   en `MAIL_*`. La colección deja la base como la encontró (cancela al final los tickets que creó sobre
-   los eventos del seed), así se puede volver a correr sin repetir `pnpm seed`.
+   en `MAIL_*`. La colección cancela al final los tickets que creó (cada corrida deja un usuario y un
+   evento nuevos), así se puede volver a correr sin repetir `pnpm seed`.
 
 ### Los 10 casos del flujo completo
 
@@ -963,7 +969,7 @@ el Collection Runner.
 | 6 | Cancelar → cupo liberado → nueva inscripción funciona | Postman carpeta 3 · flujo de inscripciones paso 7 |
 | 7 | `organizer` modifica evento ajeno → 403 | Postman carpeta 2 · flujo de eventos paso 5 |
 | 8 | `admin` modifica evento de otro organizador → 200 | Postman carpeta 2 · flujo de eventos paso 6 |
-| 9 | Ninguna respuesta de usuario, evento o ticket contiene `password` | Postman (test `no expone password` en cada petición) · `test/flujo-final.test.js` |
+| 9 | Ninguna respuesta de usuario, evento o ticket contiene `password` | Postman (test `no expone password` en registro, `/current`, usuarios, detalle de evento, mis tickets e inscritos) · `test/flujo-final.test.js` |
 | 10 | `?status=published&page=2&limit=5` devuelve la estructura paginada | Postman carpeta 2 · flujo de eventos paso 8 |
 
 Los diez están automatizados uno a uno en `test/flujo-final.test.js`.
@@ -1135,7 +1141,7 @@ curl $EV/abc
 ### Flujo de inscripciones (casos de la consigna)
 
 Continúa con las cookies anteriores (`ana.txt` admin, `bruno.txt` organizer, `carla.txt` user) y el
-taller publicado por bruno (`$TALLER`). Registra y loguea además a `diego` (user) para el ticket ajeno.
+taller publicado por bruno (`$TALLER`). Registra además a `diego` (user) e inicia su sesión para el ticket ajeno.
 
 ```bash
 EV=http://localhost:8080/api/events
@@ -1202,17 +1208,14 @@ curl -b bruno.txt $EV/$TALLER/tickets
 curl -b ana.txt "$EV/$TALLER/tickets?status=cancelled"
 ```
 
-En Postman o Thunder Client la cookie se guarda sola tras el login: basta con llamar a la ruta
-después y ver el código; para probar el `401`, borrar la cookie `currentUser` en el gestor de
-cookies (o esperar a que expire). Para cambiar de rol, hacer login con otro usuario.
-
 ### Suite de tests
 
 ```bash
 pnpm test
 ```
 
-200 tests de integración en 16 archivos, con MongoDB en memoria (`mongodb-memory-server`): no hace
+200 tests en 16 archivos (integración HTTP, reglas de negocio con repositorios falsos y reglas de
+arquitectura), con MongoDB en memoria (`mongodb-memory-server`): no hace
 falta una base instalada ni credenciales.
 
 `pnpm test` ejecuta `test/run.js`, que levanta **una sola instancia** de MongoDB en memoria y después
@@ -1276,9 +1279,9 @@ por esa descarga. Para correr un solo archivo: `node test/run.js test/tickets.te
   necesitan base.
 - **Reloj inyectable.** `EventsService` recibe `{ ahora }` opcional; los tests de reglas temporales
   fijan la fecha en vez de depender de la hora en que corren.
-- **Los borradores se ven en el listado público.** Facilita que el evaluador pruebe
-  `?status=draft` y el detalle recién creado; ocultarlos a quien no sea el organizador es una
-  decisión de producto pendiente; hoy la API es la misma para todos los clientes.
+- **Los borradores se ven en el listado público.** Facilita probar `?status=draft` y el
+  detalle de un evento recién creado. Ocultarlos a quien no sea el organizador es una decisión de
+  producto pendiente: hoy la API responde lo mismo a todos los clientes.
 
 ## Decisiones de diseño de las inscripciones
 
@@ -1300,8 +1303,8 @@ por esa descarga. Para correr un solo archivo: `node test/run.js test/tickets.te
   del servidor haya. Alternativas descartadas: una transacción (exige replica set, que el entorno
   local y los tests no tienen) y un lock en memoria (no sirve con más de una instancia). Costo
   asumido: son dos escrituras (evento y ticket) sin transacción; si el proceso se cayera justo entre
-  ambas quedaría un lugar reservado sin ticket, que se corrige recalculando el contador desde los
-  tickets activos.
+  ambas quedaría un lugar reservado sin ticket; `pnpm recalcular-cupos` lo corrige dejando el contador
+  de cada evento igual a la suma de sus tickets activos.
 - **Cancelar es lógico y solo del dueño o un admin.** El organizador del evento no cancela tickets
   ajenos: no es su acuerdo. Se conserva el documento con `cancelledAt` para historial y auditoría.
 - **El correo va después de persistir y no bloquea.** Primero el ticket, luego el aviso: nunca se
@@ -1314,8 +1317,8 @@ por esa descarga. Para correr un solo archivo: `node test/run.js test/tickets.te
 - **`pending` existe pero no se usa todavía.** Lo exige el contrato de la entidad; queda definido
   como estado activo (ocupa cupo) para un flujo de pago futuro, sin inventar hoy una ruta que lo
   produzca.
-- **Inscribirse solo a eventos `published` y futuros.** Un borrador no es público, un cancelado o
-  finalizado no admite inscripciones, y un evento publicado cuya fecha ya pasó tampoco. Los cuatro casos
+- **Inscribirse solo a eventos `published` y futuros.** Un borrador todavía no está abierto a inscripciones, un cancelado o
+  finalizado no las admite, y un evento publicado cuya fecha ya pasó tampoco. Los cuatro casos
   responden `409` con su motivo.
 
 ## Decisiones de seguridad
@@ -1423,7 +1426,7 @@ coderhouse-backend2-entregafinal/
 │   │   └── ticket.dto.js             # toTicketDTO: referencias como id o resumen poblado (sin password ni role)
 │   ├── models/
 │   │   ├── User.js                   # first_name, last_name, email (único), password, role (enum de roles.config)
-│   │   ├── Event.js                  # title, description, category, date, location, capacity, price, status (enum), organizer (ref User)
+│   │   ├── Event.js                  # title, description, category, date, location, capacity, price, status (enum), seatsTaken (contador interno de cupos), organizer (ref User)
 │   │   └── Ticket.js                 # user (ref), event (ref), status (enum), quantity, reservationCode (único), cancelledAt; índice único parcial
 │   ├── middlewares/
 │   │   ├── auth.middleware.js        # autenticarCon(estrategia) envuelve passport.authenticate; auth = 'current' → 401
@@ -1432,6 +1435,7 @@ coderhouse-backend2-entregafinal/
 │   │   └── error.middleware.js       # traduce errores a 400 / 401 / 403 / 404 / 409 / 413 / 500
 │   ├── scripts/
 │   │   ├── asignar-rol.js            # pnpm asignar-rol <email> <rol>: primer admin de una instalación
+│   │   ├── recalcular-cupos.js       # pnpm recalcular-cupos: contador de lugares = suma de tickets activos
 │   │   └── seed.js                   # pnpm seed: usuarios (admin, organizer, 2 user) y eventos de prueba, idempotente
 │   └── utils/
 │       ├── jwt.js                    # signToken (jsonwebtoken, HS256, JWT_SECRET); la verificación la hace passport-jwt
@@ -1468,6 +1472,7 @@ coderhouse-backend2-entregafinal/
 ├── .env.example
 ├── .gitignore
 ├── package.json
+├── pnpm-lock.yaml
 ├── pnpm-workspace.yaml
 └── README.md
 ```
@@ -1497,7 +1502,7 @@ POST /api/sessions/logout
   → sessions.controller    clearCookie('currentUser') y confirma (no pasa por Passport)
 ```
 
-### Flujo de la autorización
+### Flujo de una petición por las capas
 
 ```
 POST /api/events  (cookie de un organizer)
@@ -1519,7 +1524,7 @@ PATCH /api/events/:eid/status  { status: 'published' }  (cookie del organizer du
   → auth → authorize(organizer, admin)
   → events.service         status válido (400 si no) → carga el evento (404) → propiedad (403)
                            → no está en estado final (409) → transición permitida (409)
-                           → fecha futura (409) → updateById condicionado al estado leído
+                           → fecha futura (409) → cambiarEstado condicionado al estado leído
   → events.repository/dao  findOneAndUpdate({ _id, status: { $in: ['draft'] } }) → DTO → 200
 
 GET /api/events?status=published&category=workshop&page=2&limit=5  (sin sesión)
@@ -1541,7 +1546,9 @@ POST /api/events/:eid/tickets  { quantity: 2 }  (cookie de un user)
 PATCH /api/tickets/:tid/cancel  (cookie del dueño)
   → auth → tickets.service ticket existe (404) → es tuyo o admin (403) → no cancelado (409)
   → tickets.repository/dao findOneAndUpdate({ _id, status: { $in: activos } }, { status: 'cancelled', cancelledAt })
-  → 200 con el ticket; el cupo queda libre porque ya no cuenta en la suma
+  → events.repository/dao  liberarCupos: $inc seatsTaken −quantity (una sola vez)
+  → mail.service           enviarCancelacionInscripcion al dueño del ticket (sin bloquear)
+  → 200 con el ticket; el cupo queda libre: el ticket deja de contar y el contador del evento baja
 ```
 
 ## Modelos
@@ -1549,7 +1556,7 @@ PATCH /api/tickets/:tid/cancel  (cookie del dueño)
 - **User**: `first_name`, `last_name`, `email` (único, minúsculas), `password` (hash de bcrypt),
   `role` (`enum` de `roles.config.js`: `user` por defecto | `organizer` | `admin`), timestamps.
 - **Event**: `title`, `description`, `category` (texto en minúsculas), `date`, `location`,
-  `capacity` (≥ 1), `price` (≥ 0), `status` (`enum` de `events.config.js`: `draft` por defecto |
+  `capacity` (≥ 1), `price` (≥ 0), `seatsTaken` (interno, no sale en las respuestas), `status` (`enum` de `events.config.js`: `draft` por defecto |
   `published` | `cancelled` | `finished`), `organizer` (referencia a `User`, tomado de la sesión),
   timestamps. Índices en `date`, `status + date`, `category` y `organizer` para los filtros del
   listado. Detalle en [Eventos: modelo, estados y reglas de negocio](#eventos-modelo-estados-y-reglas-de-negocio).
