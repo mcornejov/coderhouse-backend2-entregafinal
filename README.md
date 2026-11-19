@@ -946,7 +946,8 @@ automáticos), la **suite de tests** (`pnpm test`, sin base instalada) y los **c
 carpetas (salud, sesión, eventos y roles, inscripciones y cupos, sin sesión). Cada petición guarda en
 variables de la colección los ids que necesita la siguiente (`eventId`, `ticketId`, `charlaId`,
 `diegoId`) y comprueba el código de respuesta y el mensaje con tests, así se puede correr entera con
-el Collection Runner.
+el Collection Runner o, sin abrir Postman, con
+`pnpm dlx newman run postman/CafeAurora.postman_collection.json`.
 
 1. Levanta el servidor (`pnpm dev`) y carga los datos de prueba (`pnpm seed`).
 2. En Postman: *Import* → el archivo de la carpeta `postman/`. La variable `baseUrl` ya apunta a
@@ -1018,6 +1019,10 @@ curl -b "currentUser=token.manipulado.xyz" http://localhost:8080/api/sessions/cu
 ```
 
 ### Flujo de roles (casos de la consigna)
+
+Los tres flujos que siguen están pensados para una base sin datos de prueba: si antes corriste
+`pnpm seed` o los ejemplos de arriba, un registro repetido responde `409` y los totales de los
+listados incluyen también los eventos del seed.
 
 ```bash
 # 0. Registrar tres usuarios: ana (será admin), bruno (será organizer) y carla (user)
