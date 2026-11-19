@@ -1,6 +1,9 @@
 # Dependencias
 node_modules/
 
+# El proyecto fija sus versiones con pnpm-lock.yaml; el lockfile de npm no se versiona
+package-lock.json
+
 # Variables de entorno (nunca versionar credenciales)
 .env
 
