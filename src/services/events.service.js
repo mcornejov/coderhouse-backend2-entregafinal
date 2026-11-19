@@ -113,7 +113,7 @@ export default class EventsService {
     // La escritura exige que el evento siga en un estado modificable: si otra petición lo
     // canceló entre la lectura y la escritura, no se pisa.
     const actualizado = await this.repository.actualizarSiModificable(id, cambios);
-    return actualizado ?? this.#resolverEscrituraFallida(id);
+    return actualizado ?? this.#resolverEscrituraFallida(id, cambios);
   }
 
   /**
@@ -169,12 +169,16 @@ export default class EventsService {
     }
   }
 
-  // La escritura condicional no encontró el evento en el estado esperado: o desapareció
-  // (404) o alguien lo cambió de estado entre la lectura y la escritura (409).
-  async #resolverEscrituraFallida(id) {
+  // La escritura condicional no se aplicó: el evento desapareció (404), alguien lo cambió de
+  // estado entre la lectura y la escritura (409) o la nueva capacidad es menor que los lugares
+  // que ya tienen inscritos (409).
+  async #resolverEscrituraFallida(id, cambios = {}) {
     const actual = await this.repository.getById(id);
     if (!actual) {
       throw new NotFoundError(`No existe un evento con id ${id}`);
+    }
+    if (cambios.capacity !== undefined && !ESTADOS_FINALES.includes(actual.status)) {
+      throw new ConflictError('La capacidad no puede ser menor que los lugares ya reservados');
     }
     throw new ConflictError(`El evento cambió a estado ${actual.status} mientras se procesaba la petición`);
   }

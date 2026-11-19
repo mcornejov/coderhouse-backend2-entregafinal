@@ -1,5 +1,5 @@
 import { toEventDTO } from '../dto/event.dto.js';
-import { ESTADOS_MODIFICABLES } from '../config/events.config.js';
+import { ESTADOS_EVENTO, ESTADOS_MODIFICABLES } from '../config/events.config.js';
 
 // Repositorio de eventos: abstrae el acceso a datos y entrega DTOs hacia el servicio,
 // de modo que ninguna capa superior manipule documentos ni ObjectId de Mongoose.
@@ -44,5 +44,19 @@ export default class EventsRepository {
   async cambiarEstado(id, estadoActual, nuevoEstado) {
     const evento = await this.dao.updateById(id, { status: nuevoEstado }, [estadoActual]);
     return evento ? toEventDTO(evento) : null;
+  }
+
+  /**
+   * Reserva `cantidad` lugares solo si el evento sigue publicado y caben en su capacidad
+   * (operación atómica en la base). Devuelve false si no se pudo reservar.
+   * @returns {Promise<boolean>}
+   */
+  async reservarCupos(id, cantidad) {
+    return this.dao.reserveSeats(id, cantidad, ESTADOS_EVENTO.PUBLISHED);
+  }
+
+  /** Libera lugares reservados: al cancelar un ticket o si la inscripción no llegó a crearse. */
+  async liberarCupos(id, cantidad) {
+    await this.dao.releaseSeats(id, cantidad);
   }
 }

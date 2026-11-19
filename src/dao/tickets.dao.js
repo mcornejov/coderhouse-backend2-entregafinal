@@ -39,16 +39,12 @@ export default class TicketsDao {
 
   /**
    * Lugares ocupados en un evento: suma de `quantity` de los tickets activos. Los cancelados no
-   * cuentan, así el cupo se libera solo al cancelar. Con `hastaId` se cuentan únicamente los
-   * tickets creados hasta ese id (los ObjectId crecen con el tiempo): sirve para que, si dos
-   * inscripciones simultáneas superan la capacidad, solo la más reciente se deshaga.
+   * cuentan.
    * @param {string} eventId
-   * @param {{ hastaId?: string }} [opciones]
    * @returns {Promise<number>}
    */
-  async sumActiveQuantity(eventId, { hastaId } = {}) {
+  async sumActiveQuantity(eventId) {
     const filtro = { event: new mongoose.Types.ObjectId(eventId), status: { $in: ESTADOS_ACTIVOS } };
-    if (hastaId) filtro._id = { $lte: new mongoose.Types.ObjectId(hastaId) };
     const [resultado] = await Ticket.aggregate([
       { $match: filtro },
       { $group: { _id: null, total: { $sum: '$quantity' } } },
@@ -64,14 +60,5 @@ export default class TicketsDao {
     const condicion = { _id: id };
     if (estadosPermitidos) condicion.status = { $in: estadosPermitidos };
     return Ticket.findOneAndUpdate(condicion, cambios, { returnDocument: 'after', runValidators: true }).lean();
-  }
-
-  /**
-   * Único borrado físico del proyecto: deshace una reserva que nunca llegó al cliente, cuando
-   * dos inscripciones simultáneas superaron la capacidad y esta fue la más reciente. Un ticket
-   * que sí se entregó jamás se borra: se cancela.
-   */
-  async removeById(id) {
-    await Ticket.deleteOne({ _id: id });
   }
 }

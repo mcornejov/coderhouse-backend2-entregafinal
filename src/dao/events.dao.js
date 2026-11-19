@@ -58,15 +58,45 @@ export default class EventsDao {
    * Actualiza un evento. Si se indican estados permitidos, la escritura solo ocurre cuando el
    * evento sigue en uno de ellos (misma operación atómica): evita que dos peticiones
    * simultáneas modifiquen un evento que la otra acaba de cancelar.
-   * runValidators: los cambios parciales también pasan por las reglas del esquema.
+   * Si cambia la capacidad, tampoco se escribe cuando quedaría por debajo de los lugares ya
+   * reservados. runValidators: los cambios parciales también pasan por las reglas del esquema.
    * @param {string} id
    * @param {object} cambios
    * @param {string[]} [estadosPermitidos]
-   * @returns {Promise<object|null>} el evento actualizado, o null si no existe o cambió de estado
+   * @returns {Promise<object|null>} el evento actualizado, o null si no existe, cambió de estado
+   *   o la nueva capacidad no alcanza para los lugares reservados
    */
   async updateById(id, cambios, estadosPermitidos) {
     const condicion = { _id: id };
     if (estadosPermitidos) condicion.status = { $in: estadosPermitidos };
+    if (cambios.capacity !== undefined) condicion.seatsTaken = { $not: { $gt: cambios.capacity } };
     return Event.findOneAndUpdate(condicion, cambios, { returnDocument: 'after', runValidators: true }).lean();
+  }
+
+  /**
+   * Reserva lugares en un evento con una sola operación atómica: la condición (el evento está en
+   * el estado indicado y los lugares pedidos caben en la capacidad) y el incremento se evalúan
+   * juntos sobre el mismo documento, así dos inscripciones simultáneas nunca pueden tomar el
+   * mismo lugar. `$ifNull` cubre eventos creados antes de que existiera el campo.
+   * @param {string} id
+   * @param {number} cantidad
+   * @param {string} estado estado que debe tener el evento para admitir la reserva
+   * @returns {Promise<boolean>} false si el evento no existe, cambió de estado o no hay lugar
+   */
+  async reserveSeats(id, cantidad, estado) {
+    const resultado = await Event.updateOne(
+      {
+        _id: id,
+        status: estado,
+        $expr: { $lte: [{ $add: [{ $ifNull: ['$seatsTaken', 0] }, cantidad] }, '$capacity'] },
+      },
+      { $inc: { seatsTaken: cantidad } },
+    );
+    return resultado.modifiedCount === 1;
+  }
+
+  /** Devuelve lugares reservados (cancelación o inscripción que no llegó a crearse). Nunca baja de 0. */
+  async releaseSeats(id, cantidad) {
+    await Event.updateOne({ _id: id, seatsTaken: { $gte: cantidad } }, { $inc: { seatsTaken: -cantidad } });
   }
 }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import request from 'supertest';
 import app from '../src/app.js';
 import Ticket from '../src/models/Ticket.js';
+import Event from '../src/models/Event.js';
 import TicketsService from '../src/services/tickets.service.js';
 import { ESTADOS_ACTIVOS, TICKET_STATUSES } from '../src/config/tickets.config.js';
 import { generarCodigoReserva, RESERVATION_CODE_REGEX } from '../src/utils/reservationCode.util.js';
@@ -61,27 +62,83 @@ describe('Control de cupos', () => {
     assert.equal(creados.length, 3, 'exactamente la capacidad');
     assert.equal(rechazados.length, 5);
     assert.ok(rechazados.every((r) => /cupo/.test(r.body.message)));
-    assert.equal(await Ticket.countDocuments({ event: evento.id }), 3, 'las reservas deshechas no quedan en la base');
+    assert.equal(await Ticket.countDocuments({ event: evento.id }), 3, 'las rechazadas no dejan ticket en la base');
   });
 
-  test('el servicio deshace solo la reserva más reciente cuando el recuento supera la capacidad', async () => {
-    const eliminados = [];
-    let recuentos = 0;
+  test('inscripciones simultáneas con cantidades distintas: se ocupa hasta donde cabe, nunca más', async () => {
+    const organizer = await crearUsuarioConRol('organizer');
+    const evento = await crearEventoPublicado(organizer, { capacity: 4 });
+    const usuarios = await crearUsuarios(9, 'q');
+
+    const respuestas = await Promise.all(usuarios.map((u, i) => inscribir(evento.id, u, { quantity: (i % 3) + 1 })));
+    assert.ok(respuestas.every((r) => r.status === 201 || r.status === 409));
+    const activos = await Ticket.find({ event: evento.id, status: { $in: ESTADOS_ACTIVOS } }).lean();
+    const ocupados = activos.reduce((suma, t) => suma + t.quantity, 0);
+    assert.ok(ocupados <= 4, `ocupados ${ocupados} no supera la capacidad`);
+    assert.equal(ocupados, 4, 'había pedidos de 1 lugar: no queda ninguno libre');
+    assert.equal((await Event.findById(evento.id).lean()).seatsTaken, ocupados, 'el contador coincide con los tickets activos');
+  });
+
+  test('el contador de lugares reservados sigue a los tickets: cancelar y duplicados lo devuelven', async () => {
+    const organizer = await crearUsuarioConRol('organizer');
+    const evento = await crearEventoPublicado(organizer, { capacity: 6 });
+    const [a, b] = await crearUsuarios(2, 'k');
+    const reservados = async () => (await Event.findById(evento.id).lean()).seatsTaken;
+
+    const ticketA = (await inscribir(evento.id, a, { quantity: 2 })).body.payload;
+    assert.equal(await reservados(), 2);
+
+    // Cinco inscripciones simultáneas del mismo usuario: una sola entra y solo ella ocupa lugar
+    const repetidas = await Promise.all(Array.from({ length: 5 }, () => inscribir(evento.id, b, { quantity: 3 })));
+    assert.equal(repetidas.filter((r) => r.status === 201).length, 1);
+    assert.equal(await reservados(), 5);
+
+    // Cuatro cancelaciones simultáneas del mismo ticket: el cupo se devuelve una sola vez
+    await Promise.all(Array.from({ length: 4 }, () => request(app).patch(`/api/tickets/${ticketA.id}/cancel`).set('Cookie', a.cookie)));
+    assert.equal(await reservados(), 3);
+
+    const detalle = await request(app).get(`/api/events/${evento.id}`);
+    assert.equal('seatsTaken' in detalle.body.payload, false, 'el contador es interno: no sale en el DTO');
+  });
+
+  test('si la reserva atómica no entra, no se crea el ticket ni se envía correo', async () => {
+    let creados = 0;
+    let correos = 0;
     const tickets = {
       findActiveByUserAndEvent: async () => null,
-      // antes de crear: 0 ocupados; después, el recuento "hasta mi ticket" ya ve 2 (otro se coló)
-      contarCuposOcupados: async () => (recuentos++ === 0 ? 0 : 2),
-      create: async (datos) => ({ id: 't-2', ...datos }),
-      removeById: async (id) => { eliminados.push(id); },
+      // el conteo previo ve lugar libre, pero otra inscripción lo toma antes de la reserva
+      contarCuposOcupados: async () => 0,
+      create: async (datos) => { creados += 1; return { id: 't-2', ...datos }; },
     };
-    const events = { getById: async () => ({ id: 'e1', title: 'T', date: '2030-01-01', location: 'L', status: 'published', capacity: 1, organizer: 'o' }) };
-    const mail = { enviarConfirmacionInscripcion: async () => true };
+    const events = {
+      getById: async () => ({ id: 'e1', title: 'T', date: '2030-01-01', location: 'L', status: 'published', capacity: 1, organizer: 'o' }),
+      reservarCupos: async () => false,
+    };
+    const mail = { enviarConfirmacionInscripcion: async () => { correos += 1; return true; } };
     const service = new TicketsService(tickets, events, {}, mail);
     await assert.rejects(service.inscribir('e1', {}, { id: 'u1', email: 'u@x.com', role: 'user' }), {
       status: 409,
       message: 'El evento no tiene cupos disponibles',
     });
-    assert.deepEqual(eliminados, ['t-2']);
+    assert.equal(creados, 0);
+    assert.equal(correos, 0);
+  });
+
+  test('si el ticket no llega a crearse, el servicio devuelve el cupo reservado', async () => {
+    const liberados = [];
+    const tickets = {
+      findActiveByUserAndEvent: async () => null,
+      contarCuposOcupados: async () => 0,
+      create: async () => { throw Object.assign(new Error('duplicado'), { code: 11000, keyPattern: { user: 1, event: 1 } }); },
+    };
+    const events = {
+      getById: async () => ({ id: 'e1', title: 'T', date: '2030-01-01', location: 'L', status: 'published', capacity: 5, organizer: 'o' }),
+      reservarCupos: async () => true,
+      liberarCupos: async (id, cantidad) => { liberados.push([id, cantidad]); },
+    };
+    const service = new TicketsService(tickets, events, {}, { enviarConfirmacionInscripcion: async () => true });
+    await assert.rejects(service.inscribir('e1', { quantity: 2 }, { id: 'u1', email: 'u@x.com', role: 'user' }), { status: 409 });
+    assert.deepEqual(liberados, [['e1', 2]]);
   });
 
   test('el correo se envía solo después de persistir y no bloquea la respuesta', async () => {
@@ -90,9 +147,11 @@ describe('Control de cupos', () => {
       findActiveByUserAndEvent: async () => null,
       contarCuposOcupados: async () => 0,
       create: async (datos) => { orden.push('persistido'); return { id: 't1', ...datos }; },
-      removeById: async () => {},
     };
-    const events = { getById: async () => ({ id: 'e1', title: 'T', date: '2030-01-01', location: 'L', status: 'published', capacity: 10, organizer: 'o' }) };
+    const events = {
+      getById: async () => ({ id: 'e1', title: 'T', date: '2030-01-01', location: 'L', status: 'published', capacity: 10, organizer: 'o' }),
+      reservarCupos: async () => true,
+    };
     let destinatario = null;
     const mail = { enviarConfirmacionInscripcion: async ({ destinatario: d }) => { orden.push('correo'); destinatario = d; return true; } };
     const ticket = await new TicketsService(tickets, events, {}, mail).inscribir('e1', { quantity: 2 }, { id: 'u1', email: 'ana@mail.com', role: 'user' });
@@ -113,6 +172,25 @@ describe('Control de cupos', () => {
     assert.deepEqual(TICKET_STATUSES, ['confirmed', 'pending', 'cancelled']);
     assert.deepEqual(ESTADOS_ACTIVOS, ['confirmed', 'pending']);
     assert.throws(() => { ESTADOS_ACTIVOS.push('cancelled'); }, TypeError);
+  });
+});
+
+describe('Capacidad y lugares ya reservados', () => {
+  test('no se puede bajar capacity por debajo de los lugares reservados → 409; hasta el límite sí', async () => {
+    const organizer = await crearUsuarioConRol('organizer');
+    const evento = await crearEventoPublicado(organizer, { capacity: 5 });
+    const [a] = await crearUsuarios(1, 'm');
+    await inscribir(evento.id, a, { quantity: 3 });
+    const modificar = (capacity) => request(app).put(`/api/events/${evento.id}`).set('Cookie', organizer.cookie).send({ capacity });
+
+    const menor = await modificar(2);
+    assert.equal(menor.status, 409);
+    assert.deepEqual(menor.body, { status: 'error', message: 'La capacidad no puede ser menor que los lugares ya reservados' });
+    assert.equal((await Event.findById(evento.id).lean()).capacity, 5, 'el evento no cambió');
+
+    const justa = await modificar(3);
+    assert.equal(justa.status, 200);
+    assert.equal(justa.body.payload.capacity, 3);
   });
 });
 

@@ -15,6 +15,9 @@ const eventSchema = new mongoose.Schema(
     date: { type: Date, required: true },
     location: { type: String, required: true, trim: true, maxlength: LONGITUD_MAXIMA.location },
     capacity: { type: Number, required: true, min: 1 },
+    // Lugares ya reservados por inscripciones activas. Dato interno: solo lo mueve el DAO con
+    // operaciones atómicas al inscribir y al cancelar, nunca llega desde el body ni sale en el DTO.
+    seatsTaken: { type: Number, default: 0, min: 0 },
     price: { type: Number, default: 0, min: 0 },
     status: { type: String, enum: EVENT_STATUSES, default: DEFAULT_STATUS },
     // Referencia al usuario que creó el evento, nunca el usuario embebido. La fija el

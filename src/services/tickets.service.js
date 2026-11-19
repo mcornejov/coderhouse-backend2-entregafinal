@@ -29,7 +29,8 @@ export default class TicketsService {
   /**
    * Inscribe al usuario autenticado en un evento. Orden de las reglas: cantidad válida (400) →
    * el evento existe (404) → está publicado y vigente (409) → sin inscripción activa previa (409)
-   * → cupo suficiente (409). Recién entonces se crea el ticket y se envía el correo.
+   * → cupo suficiente (409) → reserva atómica del cupo (409). Recién entonces se crea el ticket
+   * y se envía el correo.
    * @param {string} eventId
    * @param {object} datos body: { quantity? } (por defecto 1)
    * @param {{ id: string, email: string, role: string }} usuario req.user
@@ -47,15 +48,21 @@ export default class TicketsService {
     const ocupados = await this.tickets.contarCuposOcupados(evento.id);
     this.#verificarCupo(evento, ocupados, quantity);
 
-    const ticket = await this.#crearConCodigoUnico({ user: usuario.id, event: evento.id, quantity });
+    // Dos inscripciones simultáneas pudieron pasar la verificación anterior con el mismo conteo.
+    // La que decide es esta reserva: la base comprueba el cupo y lo descuenta en una sola
+    // operación sobre el evento, así que solo entran las que caben.
+    const reservado = await this.events.reservarCupos(evento.id, quantity);
+    if (!reservado) {
+      await this.#rechazarReserva(evento.id, quantity);
+    }
 
-    // Dos inscripciones simultáneas pudieron pasar la verificación de cupo con el mismo conteo.
-    // Se recuenta incluyendo solo los tickets creados hasta este; si con él se supera la capacidad,
-    // este es el que sobra: se deshace la reserva (nunca llegó al cliente) y se informa el conflicto.
-    const ocupadosHastaEste = await this.tickets.contarCuposOcupados(evento.id, { hastaId: ticket.id });
-    if (ocupadosHastaEste > evento.capacity) {
-      await this.tickets.removeById(ticket.id);
-      this.#verificarCupo(evento, ocupadosHastaEste - quantity, quantity);
+    let ticket;
+    try {
+      ticket = await this.#crearConCodigoUnico({ user: usuario.id, event: evento.id, quantity });
+    } catch (error) {
+      // El ticket no llegó a existir (por ejemplo, inscripción duplicada simultánea): se devuelve el cupo
+      await this.events.liberarCupos(evento.id, quantity);
+      throw error;
     }
 
     // El correo va después de persistir y no bloquea la respuesta: si el SMTP falla, la
@@ -103,8 +110,8 @@ export default class TicketsService {
   }
 
   /**
-   * Cancelación lógica: status cancelled + cancelledAt. El documento se conserva y, al no contar
-   * en el cálculo, el cupo queda libre de inmediato. Solo el dueño del ticket o un admin.
+   * Cancelación lógica: status cancelled + cancelledAt. El documento se conserva y sus lugares
+   * se devuelven al evento. Solo el dueño del ticket o un admin.
    * @param {string} ticketId
    * @param {{ id: string, role: string }} usuario
    */
@@ -127,6 +134,9 @@ export default class TicketsService {
       if (!actual) throw new NotFoundError(`No existe un ticket con id ${ticketId}`);
       throw new ConflictError('El ticket ya está cancelado');
     }
+
+    // Solo la petición que realmente canceló llega hasta aquí, así el cupo se devuelve una vez
+    await this.events.liberarCupos(cancelado.event, cancelado.quantity);
 
     // Aviso al dueño del ticket (aunque lo haya cancelado un admin), sin bloquear la respuesta
     this.#notificarCancelacion(cancelado, usuario);
@@ -191,6 +201,16 @@ export default class TicketsService {
     if (disponibles < quantity) {
       throw new ConflictError(`No hay cupo suficiente: quedan ${disponibles} lugares y solicitaste ${quantity}`);
     }
+  }
+
+  // La reserva atómica no entró: se relee el evento para responder con el motivo real
+  // (cambió de estado, lo borraron o se quedó sin lugar mientras se procesaba la petición).
+  async #rechazarReserva(eventId, quantity) {
+    const evento = await this.#obtenerEvento(eventId);
+    this.#verificarEventoDisponible(evento);
+    const ocupados = await this.tickets.contarCuposOcupados(evento.id);
+    this.#verificarCupo(evento, ocupados, quantity);
+    throw new ConflictError('El evento no tiene cupos disponibles');
   }
 
   // El índice único (user, event) activo puede rechazar una inscripción duplicada simultánea;

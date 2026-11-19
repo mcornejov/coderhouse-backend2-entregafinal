@@ -33,8 +33,8 @@ export default class TicketsRepository {
   }
 
   /** @returns {Promise<number>} lugares ocupados por tickets activos */
-  async contarCuposOcupados(eventId, opciones) {
-    return this.dao.sumActiveQuantity(eventId, opciones);
+  async contarCuposOcupados(eventId) {
+    return this.dao.sumActiveQuantity(eventId);
   }
 
   /**
@@ -44,9 +44,5 @@ export default class TicketsRepository {
   async cancelar(id, cancelledAt) {
     const ticket = await this.dao.updateById(id, { status: ESTADOS_TICKET.CANCELLED, cancelledAt }, ESTADOS_ACTIVOS);
     return ticket ? toTicketDTO(ticket) : null;
-  }
-
-  async removeById(id) {
-    return this.dao.removeById(id);
   }
 }
