@@ -9,7 +9,8 @@
     "dev": "node --watch src/server.js",
     "test": "node test/run.js",
     "asignar-rol": "node src/scripts/asignar-rol.js",
-    "seed": "node src/scripts/seed.js"
+    "seed": "node src/scripts/seed.js",
+    "recalcular-cupos": "node src/scripts/recalcular-cupos.js"
   },
   "keywords": [
     "nodejs",
